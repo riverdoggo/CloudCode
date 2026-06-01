@@ -479,7 +479,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "Config",
-            description: "Get or set Claw Code settings.",
+            description: "Get or set Cloud Code settings.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1470,8 +1470,6 @@ fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
         candidates.push(home.join(".config").join("opencode").join("skills"));
         candidates.push(home.join(".codex").join("skills"));
     }
-    candidates.push(std::path::PathBuf::from("/home/bellman/.codex/skills"));
-
     for root in candidates {
         let direct = root.join(requested).join("SKILL.md");
         if direct.exists() {

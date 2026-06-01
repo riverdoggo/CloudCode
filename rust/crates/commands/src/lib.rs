@@ -122,7 +122,7 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
     SlashCommandSpec {
         name: "init",
         aliases: &[],
-        summary: "Create a starter CLAW.md for this repo",
+        summary: "Create a starter CLOUD.md for this repo",
         argument_hint: None,
         resume_supported: true,
     },

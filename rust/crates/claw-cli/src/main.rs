@@ -233,7 +233,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             "-p" => {
-                // Claw Code compat: -p "prompt" = one-shot prompt
+                // CLI compat: -p "prompt" = one-shot prompt
                 let prompt = args[index + 1..].join(" ");
                 if prompt.trim().is_empty() {
                     return Err("-p requires a prompt string".to_string());
@@ -247,7 +247,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 });
             }
             "--print" => {
-                // Claw Code compat: --print makes output non-interactive
+                // CLI compat: --print makes output non-interactive
                 output_format = CliOutputFormat::Text;
                 index += 1;
             }
@@ -2322,7 +2322,7 @@ fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
     if project_context.instruction_files.is_empty() {
         lines.push("Discovered files".to_string());
         lines.push(
-            "  No CLAW instruction files discovered in the current directory ancestry."
+            "  No CLOUD instruction files discovered in the current directory ancestry."
                 .to_string(),
         );
     } else {
@@ -2683,7 +2683,7 @@ fn resolve_project_root(cwd: &Path) -> Result<PathBuf, Box<dyn std::error::Error
 fn is_project_root_candidate(path: &Path) -> bool {
     path.join(".git").is_dir()
         || path.join(".claw").is_dir()
-        || path.join("CLAW.md").is_file()
+        || path.join("CLOUD.md").is_file()
         || path.join("Cargo.toml").is_file()
         || path.join("package.json").is_file()
 }
@@ -4692,7 +4692,7 @@ mod tests {
             names,
             vec![
                 "help", "status", "compact", "clear", "cost", "config", "memory", "init", "diff",
-                "version", "export", "agents", "skills",
+                "version", "export", "agents", "skills", "api-show",
             ]
         );
     }
@@ -4927,7 +4927,7 @@ mod tests {
     #[test]
     fn init_template_mentions_detected_rust_workspace() {
         let rendered = crate::init::render_init_claw_md(std::path::Path::new("."));
-        assert!(rendered.contains("# CLAW.md"));
+        assert!(rendered.contains("# CLOUD.md"));
         assert!(rendered.contains("cargo clippy --workspace --all-targets -- -D warnings"));
     }
 

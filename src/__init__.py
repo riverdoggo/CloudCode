@@ -1,4 +1,4 @@
-"""Python porting workspace for the Claw Code rewrite effort."""
+"""Python porting workspace for Cloud Code."""
 
 from .commands import PORTED_COMMANDS, build_command_backlog
 from .parity_audit import ParityAuditResult, run_parity_audit

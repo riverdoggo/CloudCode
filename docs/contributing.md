@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to `agent`.
+Thanks for contributing to Cloud Code.
 
 ## Local Development
 

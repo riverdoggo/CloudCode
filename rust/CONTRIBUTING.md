@@ -1,43 +1,25 @@
 # Contributing
 
-Thanks for contributing to Claw Code.
+Thanks for contributing to Cloud Code.
 
-## Development setup
+## Local development
 
-- Install the stable Rust toolchain.
-- Work from the repository root in this Rust workspace. If you started from the parent repo root, `cd rust/` first.
+From the repo root:
 
-## Build
+- `make dev`
+- `./scripts/dev.sh`
+- `./scripts/dev.ps1`
 
-```bash
-cargo build
-cargo build --release
-```
-
-## Test and verify
-
-Run the full Rust verification set before you open a pull request:
+Or from `rust/`:
 
 ```bash
-cargo fmt --all --check
+cargo fmt
 cargo clippy --workspace --all-targets -- -D warnings
-cargo check --workspace
 cargo test --workspace
 ```
 
-If you change behavior, add or update the relevant tests in the same pull request.
-
-## Code style
-
-- Follow the existing patterns in the touched crate instead of introducing a new style.
-- Format code with `rustfmt`.
-- Keep `clippy` clean for the workspace targets you changed.
-- Prefer focused diffs over drive-by refactors.
-
 ## Pull requests
 
-- Branch from `main`.
-- Keep each pull request scoped to one clear change.
-- Explain the motivation, the implementation summary, and the verification you ran.
-- Make sure local checks pass before requesting review.
-- If review feedback changes behavior, rerun the relevant verification commands.
+- Keep changes focused and reviewable.
+- Run format, clippy, and tests before opening a PR.
+- Update `CLOUD.md` or docs when workflows change.

@@ -1,8 +1,33 @@
+# Python
 __pycache__/
-archive/
-.omx/
-.clawd-agents/
-# Claude Code local artifacts
-.claude/settings.local.json
-.claude/sessions/
+*.py[cod]
+venv/
+.venv/
+
+# Rust
+rust/target/
+rust/target-*/
+
+# Local runtime / agent state
+.claw/sessions/
+.claw/settings.local.json
+.port_sessions/
 .cloud-code.local.json
+.clawd-agents/
+.omx/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*~
+Thumbs.db
+.DS_Store
+
+# Archives and misc
+archive/
