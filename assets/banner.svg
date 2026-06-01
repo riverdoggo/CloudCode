@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="Cloud Code banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#020617"/>
+      <stop offset="45%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="80%" cy="20%" r="60%">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <rect width="1200" height="320" fill="url(#glow)"/>
+  <circle cx="980" cy="90" r="120" fill="#38bdf8" opacity="0.08"/>
+  <circle cx="1050" cy="220" r="90" fill="#a855f7" opacity="0.1"/>
+  <g transform="translate(72,72)">
+    <rect width="88" height="88" rx="20" fill="#1e293b" stroke="url(#accent)" stroke-width="2"/>
+    <path fill="url(#accent)" d="M66 40c0 10-6 19-15 21-3 9-11 15-21 15-12 0-21-9-21-21 0-11 8-20 18-21 3-10 12-17 22-17 12 0 22 10 22 23z"/>
+    <rect x="34" y="62" width="30" height="5" rx="2.5" fill="#e2e8f0" opacity="0.85"/>
+  </g>
+  <text x="190" y="128" fill="#f8fafc" font-family="Segoe UI, system-ui, sans-serif" font-size="56" font-weight="700">Cloud Code</text>
+  <text x="192" y="172" fill="#94a3b8" font-family="Segoe UI, system-ui, sans-serif" font-size="24">Terminal coding agent · Rust · multi-provider</text>
+  <rect x="192" y="200" width="220" height="36" rx="18" fill="url(#accent)" opacity="0.15"/>
+  <text x="212" y="225" fill="#cbd5e1" font-family="ui-monospace, Consolas, monospace" font-size="16">cloud-code prompt "fix the tests"</text>
+</svg>

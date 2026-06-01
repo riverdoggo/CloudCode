@@ -1,25 +1,41 @@
 # Python
 __pycache__/
 *.py[cod]
+.Python
 venv/
 .venv/
+*.egg-info/
+dist/
+build/
 
 # Rust
 rust/target/
 rust/target-*/
+**/*.rs.bk
 
-# Local runtime / agent state
+# Local runtime / agent state (never commit machine state)
 .claw/sessions/
 .claw/settings.local.json
+.claw/plugins/installed/
+**/.claw/sessions/
+**/.claw/plugins/installed/
 .port_sessions/
 .cloud-code.local.json
 .clawd-agents/
 .omx/
 
-# Secrets and local env
+# Secrets — only .env.example is tracked
 .env
-.env.*
+.env.local
+.env.*.local
+.env.development
+.env.production
 !.env.example
+
+# Logs & coverage
+*.log
+coverage/
+*.lcov
 
 # IDE / OS
 .idea/
@@ -29,5 +45,13 @@ rust/target-*/
 Thumbs.db
 .DS_Store
 
-# Archives and misc
+# Archives and local experiments
 archive/
+
+# Legacy / upstream promo assets (not part of Cloud Code)
+assets/instructkr.png
+assets/clawd-hero.jpeg
+assets/omx/
+assets/star-history.png
+assets/tweet-screenshot.png
+assets/wsj-feature.png
