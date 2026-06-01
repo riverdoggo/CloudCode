@@ -1,0 +1,14 @@
+C:\Projects\cloud-code\rust\.\target-codex-checkPv5Tjn\debug\deps\serde-ff62830f6341347e.d: C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Projects\cloud-code\rust\.\target-codex-checkPv5Tjn\debug\build\serde-9b76ea22f6fba3a5\out/private.rs
+
+C:\Projects\cloud-code\rust\.\target-codex-checkPv5Tjn\debug\deps\libserde-ff62830f6341347e.rlib: C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Projects\cloud-code\rust\.\target-codex-checkPv5Tjn\debug\build\serde-9b76ea22f6fba3a5\out/private.rs
+
+C:\Projects\cloud-code\rust\.\target-codex-checkPv5Tjn\debug\deps\libserde-ff62830f6341347e.rmeta: C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Projects\cloud-code\rust\.\target-codex-checkPv5Tjn\debug\build\serde-9b76ea22f6fba3a5\out/private.rs
+
+C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs:
+C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs:
+C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs:
+C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs:
+C:\Users\lorandp\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs:
+C:\Projects\cloud-code\rust\.\target-codex-checkPv5Tjn\debug\build\serde-9b76ea22f6fba3a5\out/private.rs:
+
+# env-dep:OUT_DIR=C:\\Projects\\cloud-code\\rust\\.\\target-codex-checkPv5Tjn\\debug\\build\\serde-9b76ea22f6fba3a5\\out

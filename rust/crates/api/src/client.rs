@@ -44,7 +44,7 @@ impl ProviderClient {
                 OpenAiCompatConfig::xai(),
             )?)),
             ProviderKind::OpenAi => Ok(Self::OpenAi(OpenAiCompatClient::from_env(
-                OpenAiCompatConfig::openai(),
+                openai_compat_config_for_env_provider().unwrap_or(OpenAiCompatConfig::openai()),
             )?)),
         }
     }
@@ -80,6 +80,22 @@ impl ProviderClient {
                 .await
                 .map(MessageStream::OpenAiCompat),
         }
+    }
+}
+
+fn openai_compat_config_for_env_provider() -> Option<OpenAiCompatConfig> {
+    let provider = std::env::var("CLOUD_CODE_PROVIDER").ok()?;
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "openai" => Some(OpenAiCompatConfig::openai()),
+        "xai" | "grok" => Some(OpenAiCompatConfig::xai()),
+        "groq" => Some(OpenAiCompatConfig::groq()),
+        "deepseek" => Some(OpenAiCompatConfig::deepseek()),
+        "ollama" => Some(OpenAiCompatConfig::ollama()),
+        "kimi" | "moonshot" => Some(OpenAiCompatConfig::kimi()),
+        "google" | "gemini" => Some(OpenAiCompatConfig::google()),
+        "openrouter" => Some(OpenAiCompatConfig::openrouter()),
+        "together" => Some(OpenAiCompatConfig::together()),
+        _ => None,
     }
 }
 

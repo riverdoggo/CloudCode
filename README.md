@@ -1,228 +1,400 @@
-# Rewriting Project Claw Code
+# agent
 
-<p align="center">
-  <strong>⭐ The fastest repo in history to surpass 50K stars, reaching the milestone in just 2 hours after publication ⭐</strong>
-</p>
+`agent` is a terminal coding agent that helps developers run AI coding tasks directly inside a repository.
 
-<p align="center">
-  <a href="https://star-history.com/#instructkr/claw-code&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=instructkr/claw-code&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=instructkr/claw-code&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=instructkr/claw-code&type=Date" width="600" />
-    </picture>
-  </a>
-</p>
+## Core Product Definition
 
-<p align="center">
-  <img src="assets/clawd-hero.jpeg" alt="Claw" width="300" />
-</p>
-
-<p align="center">
-  <strong>Better Harness Tools, not merely storing the archive of leaked Claw Code</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/sponsors/instructkr"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github&style=for-the-badge" alt="Sponsor on GitHub" /></a>
-</p>
-
-> [!IMPORTANT]
-> **Rust port is now in progress** on the [`dev/rust`](https://github.com/instructkr/claw-code/tree/dev/rust) branch and is expected to be merged into main today. The Rust implementation aims to deliver a faster, memory-safe harness runtime. Stay tuned — this will be the definitive version of the project.
-
-> If you find this work useful, consider [sponsoring @instructkr on GitHub](https://github.com/sponsors/instructkr) to support continued open-source harness engineering research.
-
----
-
-## Rust Port
-
-The Rust workspace under `rust/` is the current systems-language port of the project.
-
-It currently includes:
-
-- `crates/api-client` — API client with provider abstraction, OAuth, and streaming support
-- `crates/runtime` — session state, compaction, MCP orchestration, prompt construction
-- `crates/tools` — tool manifest definitions and execution framework
-- `crates/commands` — slash commands, skills discovery, and config inspection
-- `crates/plugins` — plugin model, hook pipeline, and bundled plugins
-- `crates/compat-harness` — compatibility layer for upstream editor integration
-- `crates/claw-cli` — interactive REPL, markdown rendering, and project bootstrap/init flows
-
-Run the Rust build:
-
-```bash
-cd rust
-cargo build --release
-```
-
-## Backstory
-
-At 4 AM on March 31, 2026, I woke up to my phone blowing up with notifications. The Claw Code source had been exposed, and the entire dev community was in a frenzy. My girlfriend in Korea was genuinely worried I might face legal action from the original authors just for having the code on my machine — so I did what any engineer would do under pressure: I sat down, ported the core features to Python from scratch, and pushed it before the sun came up.
-
-The whole thing was orchestrated end-to-end using [oh-my-codex (OmX)](https://github.com/Yeachan-Heo/oh-my-codex) by [@bellman_ych](https://x.com/bellman_ych) — a workflow layer built on top of OpenAI's Codex ([@OpenAIDevs](https://x.com/OpenAIDevs)). I used `$team` mode for parallel code review and `$ralph` mode for persistent execution loops with architect-level verification. The entire porting session — from reading the original harness structure to producing a working Python tree with tests — was driven through OmX orchestration.
-
-The result is a clean-room Python rewrite that captures the architectural patterns of Claw Code's agent harness without copying any proprietary source. I'm now actively collaborating with [@bellman_ych](https://x.com/bellman_ych) — the creator of OmX himself — to push this further. The basic Python foundation is already in place and functional, but we're just getting started. **Stay tuned — a much more capable version is on the way.**
-
-The Rust port was developed with both [oh-my-codex (OmX)](https://github.com/Yeachan-Heo/oh-my-codex) and [oh-my-opencode (OmO)](https://github.com/code-yeongyu/oh-my-openagent): OmX drove scaffolding, orchestration, and architecture direction, while OmO was used for later implementation acceleration and verification support.
-
-https://github.com/instructkr/claw-code
-
-![Tweet screenshot](assets/tweet-screenshot.png)
-
-## The Creators Featured in Wall Street Journal For Avid Claw Code Fans
-
-I've been deeply interested in **harness engineering** — studying how agent systems wire tools, orchestrate tasks, and manage runtime context. This isn't a sudden thing. The Wall Street Journal featured my work earlier this month, documenting how I've been one of the most active power users exploring these systems:
-
-> AI startup worker Sigrid Jin, who attended the Seoul dinner, single-handedly used 25 billion of Claw Code tokens last year. At the time, usage limits were looser, allowing early enthusiasts to reach tens of billions of tokens at a very low cost.
->
-> Despite his countless hours with Claw Code, Jin isn't faithful to any one AI lab. The tools available have different strengths and weaknesses, he said. Codex is better at reasoning, while Claw Code generates cleaner, more shareable code.
->
-> Jin flew to San Francisco in February for Claw Code's first birthday party, where attendees waited in line to compare notes with Cherny. The crowd included a practicing cardiologist from Belgium who had built an app to help patients navigate care, and a California lawyer who made a tool for automating building permit approvals using Claw Code.
->
-> "It was basically like a sharing party," Jin said. "There were lawyers, there were doctors, there were dentists. They did not have software engineering backgrounds."
->
-> — *The Wall Street Journal*, March 21, 2026, [*"The Trillion Dollar Race to Automate Our Entire Lives"*](https://lnkd.in/gs9td3qd)
-
-![WSJ Feature](assets/wsj-feature.png)
-
----
-
-## Porting Status
-
-The main source tree is now Python-first.
-
-- `src/` contains the active Python porting workspace
-- `tests/` verifies the current Python workspace
-- the exposed snapshot is no longer part of the tracked repository state
-
-The current Python workspace is not yet a complete one-to-one replacement for the original system, but the primary implementation surface is now Python.
-
-## Why this rewrite exists
-
-I originally studied the exposed codebase to understand its harness, tool wiring, and agent workflow. After spending more time with the legal and ethical questions—and after reading the essay linked below—I did not want the exposed snapshot itself to remain the main tracked source tree.
-
-This repository now focuses on Python porting work instead.
-
-## Repository Layout
+The first-class experience is a terminal workflow:
 
 ```text
-.
-├── src/                                # Python porting workspace
-│   ├── __init__.py
-│   ├── commands.py
-│   ├── main.py
-│   ├── models.py
-│   ├── port_manifest.py
-│   ├── query_engine.py
-│   ├── task.py
-│   └── tools.py
-├── rust/                               # Rust port (claw CLI)
-│   ├── crates/api/                     # API client + streaming
-│   ├── crates/runtime/                 # Session, tools, MCP, config
-│   ├── crates/claw-cli/               # Interactive CLI binary
-│   ├── crates/plugins/                 # Plugin system
-│   ├── crates/commands/                # Slash commands
-│   ├── crates/server/                  # HTTP/SSE server (axum)
-│   ├── crates/lsp/                    # LSP client integration
-│   └── crates/tools/                   # Tool specs
-├── tests/                              # Python verification
-├── assets/omx/                         # OmX workflow screenshots
-├── 2026-03-09-is-legal-the-same-as-legitimate-ai-reimplementation-and-the-erosion-of-copyleft.md
-└── README.md
+agent
+> fix authentication bug
+> write tests for user service
+> refactor auth module
 ```
 
-## Python Workspace Overview
+or direct commands:
 
-The new Python `src/` tree currently provides:
+```text
+agent fix bug in auth.rs
+agent explain src/server.rs
+agent test
+```
 
-- **`port_manifest.py`** — summarizes the current Python workspace structure
-- **`models.py`** — dataclasses for subsystems, modules, and backlog state
-- **`commands.py`** — Python-side command port metadata
-- **`tools.py`** — Python-side tool port metadata
-- **`query_engine.py`** — renders a Python porting summary from the active workspace
-- **`main.py`** — a CLI entrypoint for manifest and summary output
+The agent is designed to:
 
-## Quickstart
+- analyze repositories
+- read and edit files
+- propose diffs
+- execute shell commands safely
+- maintain conversational context
 
-Render the Python porting summary:
+## Model Provider Support
+
+The project supports multiple model providers:
+
+- OpenAI
+- Anthropic
+- Ollama
+- Groq
+- OpenRouter
+
+Example model configuration:
+
+```toml
+model = "openai:gpt-4.1"
+```
+
+Local model support is a primary capability, not an optional extension. Supporting local models early avoids vendor lock-in and differentiates the tool from hosted-only coding assistants.
+
+## Architecture Overview
+
+Core components:
+
+- CLI Interface
+- Agent Runtime
+- Tool System
+- Plugin System
+- Model Providers
+- Context Engine
+- Security Sandbox
+- Optional HTTP API
+
+High-level architecture:
+
+```text
+CLI
+ │
+Agent Runtime
+ │
+Tool Execution Layer
+ │
+Plugin Layer
+ │
+Model Adapter Layer
+ │
+Filesystem / Git / Shell
+```
+
+Data flow:
+
+```text
+User command
+ ↓
+CLI parses command
+ ↓
+Agent builds context
+ ↓
+Prompt sent to model
+ ↓
+Model returns action
+ ↓
+Tool executed
+ ↓
+Result returned to agent
+ ↓
+Loop continues until task complete
+```
+
+The architecture is plugin-first so tools, models, and behaviors can evolve without changing core runtime components.
+
+## Project Structure
+
+Target modular Rust layout:
+
+```text
+src/
+ ├ main.rs
+ ├ cli/
+ │   ├ commands.rs
+ │   └ repl.rs
+ │
+ ├ agent/
+ │   ├ controller.rs
+ │   ├ planner.rs
+ │   └ context.rs
+ │
+ ├ tools/
+ │   ├ read_file.rs
+ │   ├ write_file.rs
+ │   ├ search.rs
+ │   ├ shell.rs
+ │   └ git.rs
+ │
+ ├ providers/
+ │   ├ openai.rs
+ │   ├ anthropic.rs
+ │   ├ ollama.rs
+ │   └ router.rs
+ │
+ ├ plugins/
+ │   ├ loader.rs
+ │   └ registry.rs
+ │
+ ├ sandbox/
+ │   └ permissions.rs
+ │
+ ├ diff/
+ │   └ patch.rs
+ │
+ └ config/
+     └ settings.rs
+```
+
+Optional directories:
+
+- `server/`
+- `python-sdk/`
+- `docs/`
+- `examples/`
+
+## CLI Design
+
+The CLI uses `clap` and supports:
+
+- `agent`
+- `agent fix <task>`
+- `agent explain <file>`
+- `agent test`
+- `agent commit`
+- `agent config`
+- `agent demo`
+
+Interactive REPL example:
+
+```text
+> analyze repository
+> fix failing tests
+> generate documentation
+```
+
+CLI UX priorities:
+
+- fast startup
+- clear feedback
+- readable diff previews
+- predictable command syntax
+- minimal cognitive overhead
+
+## Agent Loop
+
+```text
+while task_not_finished:
+    build_context()
+    send_prompt()
+    receive_response()
+
+    if response.contains_tool_call:
+        execute_tool()
+
+    update_context()
+```
+
+The first version stays intentionally minimal while supporting:
+
+- multi-step reasoning
+- tool invocation
+- incremental context updates
+
+## Tool System
+
+Minimum tools:
+
+- `read_file`
+- `write_file`
+- `search_repo`
+- `run_command`
+- `git_diff`
+
+Example tool schema:
+
+```json
+{
+  "name": "read_file",
+  "description": "Read a file from the workspace",
+  "parameters": {
+    "path": "string"
+  }
+}
+```
+
+All file modifications must flow through diff generation; files must never be overwritten directly.
+
+Patch-apply behavior is runtime-mediated:
+
+```text
+Proposed change: src/auth.rs
+
+--- src/auth.rs
++++ src/auth.rs
+- let token = ""
++ let token = generate_token()
+
+Apply this patch? (y/N)
+```
+
+## Tool Sandboxing
+
+Permission modes:
+
+- `safe`
+- `workspace`
+- `full-access`
+
+Sandbox enforces:
+
+- command allowlists
+- directory access restrictions
+- permission prompts
+- execution limits
+
+`safe` mode should block shell execution, block external network calls, and require confirmation for file modifications.
+
+## Context Engine
+
+Context retrieval should combine:
+
+- keyword search
+- git awareness
+- syntax parsing (for example via Tree-sitter)
+
+Context windows must remain within model token limits.
+
+## Configuration
+
+Default configuration path:
+
+- `~/.agent/config.toml`
+
+Example:
+
+```toml
+model = "anthropic:claude-sonnet"
+temperature = 0.2
+permission_mode = "workspace"
+
+[providers.openai]
+api_key = "..."
+
+[providers.ollama]
+endpoint = "http://localhost:11434"
+```
+
+Configuration also supports plugin enablement and permission mode defaults.
+
+## CI / CD Requirements
+
+CI enforces:
+
+- `cargo fmt --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace`
+- coverage checks
+
+GitHub Actions should run format, lint, unit tests, and integration tests on pull requests and pushes.
+
+## Developer Onboarding
+
+Quick start commands:
 
 ```bash
-python3 -m src.main summary
+make dev
 ```
 
-Print the current Python workspace manifest:
+or:
 
 ```bash
-python3 -m src.main manifest
+./scripts/dev.sh
 ```
 
-List the current Python modules:
+or on Windows:
 
-```bash
-python3 -m src.main subsystems --limit 16
+```powershell
+./scripts/dev.ps1
 ```
 
-Run verification:
+Each command should install dependencies, run the agent, and start a demo workspace.
 
-```bash
-python3 -m unittest discover -s tests -v
+## Testing Strategy
+
+Test coverage should include:
+
+- unit tests
+- API contract tests
+- agent loop tests
+- tool execution tests
+
+Python tests should be modular, for example:
+
+```text
+tests/
+  agent/
+  tools/
+  api/
+  integration/
 ```
 
-Run the parity audit against the local ignored archive (when present):
+## Release Strategy
 
-```bash
-python3 -m src.main parity-audit
-```
+Tagged releases should include:
 
-Inspect mirrored command/tool inventories:
+- changelog
+- version tag
+- binary artifacts for Linux, macOS, and Windows
 
-```bash
-python3 -m src.main commands --limit 10
-python3 -m src.main tools --limit 10
-```
+Install methods:
 
-## Current Parity Checkpoint
+- `curl install.sh | bash`
+- `cargo install agent-cli`
 
-The port now mirrors the archived root-entry file surface, top-level subsystem names, and command/tool inventories much more closely than before. However, it is **not yet** a full runtime-equivalent replacement for the original TypeScript system; the Python tree still contains fewer executable runtime slices than the archived source.
+## Public Demo Mode
 
-## Built with `oh-my-codex` and `oh-my-opencode`
+`agent demo` should:
 
-This repository's porting, cleanroom hardening, and verification workflow was AI-assisted with Yeachan Heo's tooling stack, with **oh-my-codex (OmX)** as the primary scaffolding and orchestration layer.
+- start a sample workspace
+- run a scripted session
+- demonstrate file editing and agent reasoning
 
-- [**oh-my-codex (OmX)**](https://github.com/Yeachan-Heo/oh-my-codex) — scaffolding, orchestration, architecture direction, and core porting workflow
-- [**oh-my-opencode (OmO)**](https://github.com/code-yeongyu/oh-my-openagent) — implementation acceleration, cleanup, and verification support
+## Documentation
 
-Key workflow patterns used during the port:
+Minimum docs:
 
-- **`$team` mode:** coordinated parallel review and architectural feedback
-- **`$ralph` mode:** persistent execution, verification, and completion discipline
-- **Cleanroom passes:** naming/branding cleanup, QA, and release validation across the Rust workspace
-- **Manual and live validation:** build, test, manual QA, and real API-path verification before publish
+- architecture overview: `docs/architecture.md`
+- security model: `docs/security.md`
+- tool API docs: `docs/tool-api.md`
+- configuration guide: `docs/configuration.md`
+- contribution guide: `docs/contributing.md`
+- golden path E2E spec: `docs/golden-path-e2e.md`
+- sandbox MVP spec: `docs/sandbox-mvp-spec.md`
+- sandbox implementation pattern: `docs/sandbox-implementation-pattern.md`
+- plugin safety model: `docs/plugin-safety-model.md`
+- skills system (v0.2): `docs/skills-system.md`
+- v0.1.0 acceptance checklist: `docs/v0.1.0-acceptance-checklist.md`
+- v0.1.0 test matrix: `docs/test-matrix.md`
 
-### OmX workflow screenshots
+## 30-Day Execution Plan
 
-![OmX workflow screenshot 1](assets/omx/omx-readme-review-1.png)
+Week 1:
 
-*Ralph/team orchestration view while the README and essay context were being reviewed in terminal panes.*
+- define runtime direction and finalize architecture
 
-![OmX workflow screenshot 2](assets/omx/omx-readme-review-2.png)
+Week 2:
 
-*Split-pane review and verification flow during the final README wording pass.*
+- implement CLI, model adapters, and basic tool system
 
-## Community
+Week 3:
 
-<p align="center">
-  <a href="https://instruct.kr/"><img src="assets/instructkr.png" alt="instructkr" width="400" /></a>
-</p>
+- add context retrieval, diff editing, and test coverage
 
-Join the [**instructkr Discord**](https://instruct.kr/) — the best Korean language model community. Come chat about LLMs, harness engineering, agent workflows, and everything in between.
+Week 4:
 
-[![Discord](https://img.shields.io/badge/Join%20Discord-instruct.kr-5865F2?logo=discord&style=for-the-badge)](https://instruct.kr/)
+- prepare first release: `v0.1.0`
+- include binary builds and demo documentation
 
-## Star History
+## Additional Priorities
 
-See the chart at the top of this README.
-
-## Ownership / Affiliation Disclaimer
-
-- This repository does **not** claim ownership of the original Claw Code source material.
-- This repository is **not affiliated with, endorsed by, or maintained by the original authors**.
+- Add plugin system early for long-term adaptability.
+- Prioritize local model support from the beginning.
+- Design tool sandboxing carefully to avoid unsafe execution.
+- Keep the initial version minimal and stable.
+- Invest heavily in terminal UX for adoption.

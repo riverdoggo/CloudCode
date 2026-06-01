@@ -108,14 +108,14 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
     SlashCommandSpec {
         name: "config",
         aliases: &[],
-        summary: "Inspect Claw config files or merged sections",
+        summary: "Inspect Cloud Code config files or merged sections",
         argument_hint: Some("[env|hooks|model|plugins]"),
         resume_supported: true,
     },
     SlashCommandSpec {
         name: "memory",
         aliases: &[],
-        summary: "Inspect loaded Claw instruction memory files",
+        summary: "Inspect loaded Cloud Code instruction memory files",
         argument_hint: None,
         resume_supported: true,
     },
@@ -227,7 +227,7 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
     SlashCommandSpec {
         name: "plugin",
         aliases: &["plugins", "marketplace"],
-        summary: "Manage Claw Code plugins",
+        summary: "Manage Cloud Code plugins",
         argument_hint: Some(
             "[list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]",
         ),
@@ -247,11 +247,48 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         argument_hint: None,
         resume_supported: true,
     },
+    SlashCommandSpec {
+        name: "login",
+        aliases: &[],
+        summary: "Authenticate with your API provider",
+        argument_hint: None,
+        resume_supported: false,
+    },
+    SlashCommandSpec {
+        name: "logout",
+        aliases: &[],
+        summary: "Clear locally saved auth credentials",
+        argument_hint: None,
+        resume_supported: false,
+    },
+    SlashCommandSpec {
+        name: "api-set",
+        aliases: &[],
+        summary: "Save API provider/model/key to project .env",
+        argument_hint: Some("<provider> <model> <api-key>"),
+        resume_supported: false,
+    },
+    SlashCommandSpec {
+        name: "api-show",
+        aliases: &[],
+        summary: "Show active API provider/model/key status",
+        argument_hint: None,
+        resume_supported: true,
+    },
+    SlashCommandSpec {
+        name: "workspace",
+        aliases: &[],
+        summary: "Manage named local workspaces",
+        argument_hint: Some("[list|add <name> <path>|use <name>]"),
+        resume_supported: false,
+    },
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashCommand {
-    Help,
+    Help {
+        topic: Option<String>,
+    },
     Status,
     Compact,
     Branch {
@@ -320,6 +357,19 @@ pub enum SlashCommand {
     Skills {
         args: Option<String>,
     },
+    Login,
+    Logout,
+    ApiSet {
+        provider: Option<String>,
+        model: Option<String>,
+        api_key: Option<String>,
+    },
+    ApiShow,
+    Workspace {
+        action: Option<String>,
+        name: Option<String>,
+        path: Option<String>,
+    },
     Unknown(String),
 }
 
@@ -334,7 +384,9 @@ impl SlashCommand {
         let mut parts = trimmed.trim_start_matches('/').split_whitespace();
         let command = parts.next().unwrap_or_default();
         Some(match command {
-            "help" => Self::Help,
+            "help" => Self::Help {
+                topic: parts.next().map(ToOwned::to_owned),
+            },
             "status" => Self::Status,
             "compact" => Self::Compact,
             "branch" => Self::Branch {
@@ -406,6 +458,22 @@ impl SlashCommand {
             "skills" => Self::Skills {
                 args: remainder_after_command(trimmed, command),
             },
+            "login" => Self::Login,
+            "logout" => Self::Logout,
+            "api-set" => Self::ApiSet {
+                provider: parts.next().map(ToOwned::to_owned),
+                model: parts.next().map(ToOwned::to_owned),
+                api_key: parts.next().map(ToOwned::to_owned),
+            },
+            "api-show" => Self::ApiShow,
+            "workspace" => Self::Workspace {
+                action: parts.next().map(ToOwned::to_owned),
+                name: parts.next().map(ToOwned::to_owned),
+                path: {
+                    let remainder = parts.collect::<Vec<_>>().join(" ");
+                    (!remainder.is_empty()).then_some(remainder)
+                },
+            },
             other => Self::Unknown(other.to_string()),
         })
     }
@@ -435,38 +503,142 @@ pub fn resume_supported_slash_commands() -> Vec<&'static SlashCommandSpec> {
 
 #[must_use]
 pub fn render_slash_command_help() -> String {
+    render_slash_command_help_filtered(None)
+}
+
+#[must_use]
+pub fn render_slash_command_help_filtered(filter: Option<&str>) -> String {
+    const COMMAND_COLUMN_WIDTH: usize = 36;
+    const RESUME_COLUMN_WIDTH: usize = 8;
+    const DESCRIPTION_COLUMN_WIDTH: usize = 50;
+
     let mut lines = vec![
         "Slash commands".to_string(),
         "  [resume] means the command also works with --resume SESSION.json".to_string(),
     ];
-    for spec in slash_command_specs() {
-        let name = match spec.argument_hint {
-            Some(argument_hint) => format!("/{} {}", spec.name, argument_hint),
-            None => format!("/{}", spec.name),
-        };
-        let alias_suffix = if spec.aliases.is_empty() {
-            String::new()
-        } else {
-            format!(
-                " (aliases: {})",
-                spec.aliases
-                    .iter()
-                    .map(|alias| format!("/{alias}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
-        let resume = if spec.resume_supported {
-            " [resume]"
-        } else {
-            ""
-        };
+
+    let categories = [
+        "Core",
+        "Session",
+        "Config/Auth",
+        "Git/GitHub",
+        "Discovery",
+        "Agent Utilities",
+    ];
+
+    for category in categories {
+        let specs = slash_command_specs()
+            .iter()
+            .filter(|spec| slash_command_category(spec.name) == category)
+            .filter(|spec| {
+                if let Some(filter) = filter.map(|value| value.trim().to_ascii_lowercase()) {
+                    if filter.is_empty() {
+                        return true;
+                    }
+                    slash_command_category(spec.name)
+                        .to_ascii_lowercase()
+                        .contains(&filter)
+                        || spec.name.contains(&filter)
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>();
+        if specs.is_empty() {
+            continue;
+        }
+
+        lines.push(String::new());
+        lines.push(format!("{category}:"));
+        let top = format!(
+            "  ┌{}┬{}┬{}┐",
+            "─".repeat(COMMAND_COLUMN_WIDTH + 2),
+            "─".repeat(RESUME_COLUMN_WIDTH + 2),
+            "─".repeat(DESCRIPTION_COLUMN_WIDTH + 2)
+        );
+        let mid = format!(
+            "  ├{}┼{}┼{}┤",
+            "─".repeat(COMMAND_COLUMN_WIDTH + 2),
+            "─".repeat(RESUME_COLUMN_WIDTH + 2),
+            "─".repeat(DESCRIPTION_COLUMN_WIDTH + 2)
+        );
+        let bottom = format!(
+            "  └{}┴{}┴{}┘",
+            "─".repeat(COMMAND_COLUMN_WIDTH + 2),
+            "─".repeat(RESUME_COLUMN_WIDTH + 2),
+            "─".repeat(DESCRIPTION_COLUMN_WIDTH + 2)
+        );
+        lines.push(top);
         lines.push(format!(
-            "  {name:<20} {}{alias_suffix}{resume}",
-            spec.summary
+            "  │ {:<COMMAND_COLUMN_WIDTH$} │ {:<RESUME_COLUMN_WIDTH$} │ {:<DESCRIPTION_COLUMN_WIDTH$} │",
+            "Command",
+            "Resume",
+            "Description"
         ));
+        lines.push(mid);
+
+        for spec in specs {
+            let name = match spec.argument_hint {
+                Some(argument_hint) => format!("/{} {}", spec.name, argument_hint),
+                None => format!("/{}", spec.name),
+            };
+            let aliases = if spec.aliases.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " (aliases: {})",
+                    spec.aliases
+                        .iter()
+                        .map(|alias| format!("/{alias}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            let resume = if spec.resume_supported { "yes" } else { "no" };
+            let desc = format!("{}{}", spec.summary, aliases);
+            lines.push(format!(
+                "  │ {:<COMMAND_COLUMN_WIDTH$} │ {:<RESUME_COLUMN_WIDTH$} │ {:<DESCRIPTION_COLUMN_WIDTH$} │",
+                truncate_cell(&name, COMMAND_COLUMN_WIDTH),
+                resume,
+                truncate_cell(&desc, DESCRIPTION_COLUMN_WIDTH),
+            ));
+        }
+        lines.push(bottom);
     }
+
+    if lines.len() == 2 {
+        lines.push(String::new());
+        lines.push("  No slash commands matched that category/filter.".to_string());
+    }
+
     lines.join("\n")
+}
+
+fn truncate_cell(value: &str, width: usize) -> String {
+    if value.chars().count() <= width {
+        return value.to_string();
+    }
+    if width <= 3 {
+        return ".".repeat(width);
+    }
+    let mut text = value.chars().take(width.saturating_sub(3)).collect::<String>();
+    text.push_str("...");
+    text
+}
+
+fn slash_command_category(name: &str) -> &'static str {
+    match name {
+        "help" | "status" | "version" | "clear" | "cost" => "Core",
+        "compact" | "resume" | "export" | "session" => "Session",
+        "model" | "permissions" | "config" | "memory" | "init" | "login" | "logout"
+        | "api-set" | "api-show" | "workspace" | "plugin" => "Config/Auth",
+        "diff" | "branch" | "worktree" | "commit" | "commit-push-pr" | "pr" | "issue" => {
+            "Git/GitHub"
+        }
+        "agents" | "skills" | "teleport" => "Discovery",
+        "ultraplan" | "bughunter" | "debug-tool-call" => "Agent Utilities",
+        _ => "Core",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1566,7 +1738,7 @@ fn render_agents_usage(unexpected: Option<&str>) -> String {
     let mut lines = vec![
         "Agents".to_string(),
         "  Usage            /agents".to_string(),
-        "  Direct CLI       claw agents".to_string(),
+        "  Direct CLI       cloud-code agents".to_string(),
         "  Sources          .codex/agents, .claw/agents, $CODEX_HOME/agents".to_string(),
     ];
     if let Some(args) = unexpected {
@@ -1579,7 +1751,7 @@ fn render_skills_usage(unexpected: Option<&str>) -> String {
     let mut lines = vec![
         "Skills".to_string(),
         "  Usage            /skills".to_string(),
-        "  Direct CLI       claw skills".to_string(),
+        "  Direct CLI       cloud-code skills".to_string(),
         "  Sources          .codex/skills, .claw/skills, legacy /commands".to_string(),
     ];
     if let Some(args) = unexpected {
@@ -1610,8 +1782,8 @@ pub fn handle_slash_command(
                 session: result.compacted_session,
             })
         }
-        SlashCommand::Help => Some(SlashCommandResult {
-            message: render_slash_command_help(),
+        SlashCommand::Help { topic } => Some(SlashCommandResult {
+            message: render_slash_command_help_filtered(topic.as_deref()),
             session: session.clone(),
         }),
         SlashCommand::Status
@@ -1640,6 +1812,11 @@ pub fn handle_slash_command(
         | SlashCommand::Plugins { .. }
         | SlashCommand::Agents { .. }
         | SlashCommand::Skills { .. }
+        | SlashCommand::ApiSet { .. }
+        | SlashCommand::ApiShow
+        | SlashCommand::Workspace { .. }
+        | SlashCommand::Login
+        | SlashCommand::Logout
         | SlashCommand::Unknown(_) => None,
     }
 }
@@ -1815,7 +1992,16 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     #[test]
     fn parses_supported_slash_commands() {
-        assert_eq!(SlashCommand::parse("/help"), Some(SlashCommand::Help));
+        assert_eq!(
+            SlashCommand::parse("/help"),
+            Some(SlashCommand::Help { topic: None })
+        );
+        assert_eq!(
+            SlashCommand::parse("/help core"),
+            Some(SlashCommand::Help {
+                topic: Some("core".to_string())
+            })
+        );
         assert_eq!(SlashCommand::parse(" /status "), Some(SlashCommand::Status));
         assert_eq!(
             SlashCommand::parse("/bughunter runtime"),
@@ -1959,6 +2145,23 @@ mod tests {
                 target: Some("demo".to_string())
             })
         );
+        assert_eq!(
+            SlashCommand::parse("/api-set openai gpt-5.4 sk-test"),
+            Some(SlashCommand::ApiSet {
+                provider: Some("openai".to_string()),
+                model: Some("gpt-5.4".to_string()),
+                api_key: Some("sk-test".to_string()),
+            })
+        );
+        assert_eq!(SlashCommand::parse("/api-show"), Some(SlashCommand::ApiShow));
+        assert_eq!(
+            SlashCommand::parse("/workspace add demo ../demo"),
+            Some(SlashCommand::Workspace {
+                action: Some("add".to_string()),
+                name: Some("demo".to_string()),
+                path: Some("../demo".to_string()),
+            })
+        );
     }
 
     #[test]
@@ -1969,8 +2172,8 @@ mod tests {
         assert!(help.contains("/status"));
         assert!(help.contains("/compact"));
         assert!(help.contains("/bughunter [scope]"));
-        assert!(help.contains("/branch [list|create <name>|switch <name>]"));
-        assert!(help.contains("/worktree [list|add <path> [branch]|remove <path>|prune]"));
+        assert!(help.contains("/branch [list|create <name>|switc..."));
+        assert!(help.contains("/worktree [list|add <path> [branc..."));
         assert!(help.contains("/commit"));
         assert!(help.contains("/commit-push-pr [context]"));
         assert!(help.contains("/pr [context]"));
@@ -1979,7 +2182,7 @@ mod tests {
         assert!(help.contains("/teleport <symbol-or-path>"));
         assert!(help.contains("/debug-tool-call"));
         assert!(help.contains("/model [model]"));
-        assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
+        assert!(help.contains("/permissions [read-only|workspace..."));
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
@@ -1991,13 +2194,18 @@ mod tests {
         assert!(help.contains("/export [file]"));
         assert!(help.contains("/session [list|switch <session-id>]"));
         assert!(help.contains(
-            "/plugin [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
+            "/plugin [list|install <path>|enab..."
         ));
-        assert!(help.contains("aliases: /plugins, /marketplace"));
+        assert!(help.contains("aliases: /plugins"));
         assert!(help.contains("/agents"));
         assert!(help.contains("/skills"));
-        assert_eq!(slash_command_specs().len(), 28);
-        assert_eq!(resume_supported_slash_commands().len(), 13);
+        assert!(help.contains("/login"));
+        assert!(help.contains("/logout"));
+        assert!(help.contains("/api-set <provider> <model> <api-..."));
+        assert!(help.contains("/api-show"));
+        assert!(help.contains("/workspace [list|add <name> <path..."));
+        assert_eq!(slash_command_specs().len(), 33);
+        assert_eq!(resume_supported_slash_commands().len(), 14);
     }
 
     #[test]
@@ -2096,6 +2304,9 @@ mod tests {
         assert!(handle_slash_command("/config", &session, CompactionConfig::default()).is_none());
         assert!(
             handle_slash_command("/config env", &session, CompactionConfig::default()).is_none()
+        );
+        assert!(
+            handle_slash_command("/api-show", &session, CompactionConfig::default()).is_none()
         );
         assert!(handle_slash_command("/diff", &session, CompactionConfig::default()).is_none());
         assert!(handle_slash_command("/version", &session, CompactionConfig::default()).is_none());
@@ -2252,7 +2463,7 @@ mod tests {
         let agents_help =
             super::handle_agents_slash_command(Some("help"), &cwd).expect("agents help");
         assert!(agents_help.contains("Usage            /agents"));
-        assert!(agents_help.contains("Direct CLI       claw agents"));
+        assert!(agents_help.contains("Direct CLI       cloud-code agents"));
 
         let agents_unexpected =
             super::handle_agents_slash_command(Some("show planner"), &cwd).expect("agents usage");

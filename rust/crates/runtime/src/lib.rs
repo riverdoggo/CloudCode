@@ -39,9 +39,10 @@ pub use conversation::{
     ToolError, ToolExecutor, TurnSummary,
 };
 pub use file_ops::{
-    edit_file, glob_search, grep_search, read_file, write_file, EditFileOutput, GlobSearchOutput,
-    GrepSearchInput, GrepSearchOutput, ReadFileOutput, StructuredPatchHunk, TextFilePayload,
-    WriteFileOutput,
+    apply_patch_proposal, edit_file, glob_search, grep_search, propose_edit_file,
+    propose_write_file, read_file, write_file, EditFileOutput, GlobSearchOutput, GrepSearchInput,
+    GrepSearchOutput, PatchApplyResult, PatchProposal, ReadFileOutput, StructuredPatchHunk,
+    TextFilePayload, WriteFileOutput,
 };
 pub use hooks::{HookEvent, HookRunResult, HookRunner};
 pub use mcp::{

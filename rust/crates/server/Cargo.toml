@@ -8,7 +8,9 @@ publish.workspace = true
 [dependencies]
 async-stream = "0.3"
 axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 runtime = { path = "../runtime" }
+rfd = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "time"] }

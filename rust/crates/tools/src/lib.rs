@@ -11,10 +11,10 @@ use api::{
 use plugins::PluginTool;
 use reqwest::blocking::Client;
 use runtime::{
-    edit_file, execute_bash, glob_search, grep_search, load_system_prompt, read_file, write_file,
-    ApiClient, ApiRequest, AssistantEvent, BashCommandInput, ContentBlock, ConversationMessage,
-    ConversationRuntime, GrepSearchInput, MessageRole, PermissionMode, PermissionPolicy,
-    RuntimeError, Session, TokenUsage, ToolError, ToolExecutor,
+    execute_bash, glob_search, grep_search, load_system_prompt, propose_edit_file,
+    propose_write_file, read_file, ApiClient, ApiRequest, AssistantEvent, BashCommandInput,
+    ContentBlock, ConversationMessage, ConversationRuntime, GrepSearchInput, MessageRole,
+    PermissionMode, PermissionPolicy, RuntimeError, Session, TokenUsage, ToolError, ToolExecutor,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -579,13 +579,13 @@ fn run_read_file(input: ReadFileInput) -> Result<String, String> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_write_file(input: WriteFileInput) -> Result<String, String> {
-    to_pretty_json(write_file(&input.path, &input.content).map_err(io_to_string)?)
+    to_pretty_json(propose_write_file(&input.path, &input.content).map_err(io_to_string)?)
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_edit_file(input: EditFileInput) -> Result<String, String> {
     to_pretty_json(
-        edit_file(
+        propose_edit_file(
             &input.path,
             &input.old_string,
             &input.new_string,
@@ -2762,8 +2762,18 @@ fn config_home_dir() -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("CLAW_CONFIG_HOME") {
         return Ok(PathBuf::from(path));
     }
-    let home = std::env::var("HOME").map_err(|_| String::from("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".claw"))
+    if let Some(home) = std::env::var_os("HOME") {
+        return Ok(PathBuf::from(home).join(".claw"));
+    }
+    if let Some(profile) = std::env::var_os("USERPROFILE") {
+        return Ok(PathBuf::from(profile).join(".claw"));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        return Ok(PathBuf::from(appdata).join("cloud-code"));
+    }
+    Err(String::from(
+        "No home directory env var found (HOME/USERPROFILE/APPDATA)",
+    ))
 }
 
 fn read_json_object(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
@@ -3076,7 +3086,10 @@ mod tests {
         push_output_block, AgentInput, AgentJob, SubagentToolExecutor,
     };
     use api::OutputContentBlock;
-    use runtime::{ApiRequest, AssistantEvent, ConversationRuntime, RuntimeError, Session};
+    use runtime::{
+        apply_patch_proposal, ApiRequest, AssistantEvent, ConversationRuntime, PatchProposal,
+        RuntimeError, Session,
+    };
     use serde_json::json;
 
     fn env_lock() -> &'static Mutex<()> {
@@ -3988,7 +4001,10 @@ mod tests {
         .expect("write create should succeed");
         let write_create_output: serde_json::Value =
             serde_json::from_str(&write_create).expect("json");
-        assert_eq!(write_create_output["type"], "create");
+        assert_eq!(write_create_output["type"], "patch_proposal");
+        let write_create_proposal: PatchProposal =
+            serde_json::from_value(write_create_output.clone()).expect("patch proposal");
+        apply_patch_proposal(&root, &write_create_proposal).expect("apply create patch");
         assert!(root.join("nested/demo.txt").exists());
 
         let write_update = execute_tool(
@@ -3998,8 +4014,11 @@ mod tests {
         .expect("write update should succeed");
         let write_update_output: serde_json::Value =
             serde_json::from_str(&write_update).expect("json");
-        assert_eq!(write_update_output["type"], "update");
-        assert_eq!(write_update_output["originalFile"], "alpha\nbeta\nalpha\n");
+        assert_eq!(write_update_output["type"], "patch_proposal");
+        assert_eq!(write_update_output["original"], "alpha\nbeta\nalpha\n");
+        let write_update_proposal: PatchProposal =
+            serde_json::from_value(write_update_output.clone()).expect("patch proposal");
+        apply_patch_proposal(&root, &write_update_proposal).expect("apply update patch");
 
         let read_full = execute_tool("read_file", &json!({ "path": "nested/demo.txt" }))
             .expect("read full should succeed");
@@ -4036,17 +4055,24 @@ mod tests {
         )
         .expect("single edit should succeed");
         let edit_once_output: serde_json::Value = serde_json::from_str(&edit_once).expect("json");
-        assert_eq!(edit_once_output["replaceAll"], false);
+        assert_eq!(edit_once_output["type"], "patch_proposal");
+        let edit_once_proposal: PatchProposal =
+            serde_json::from_value(edit_once_output.clone()).expect("patch proposal");
+        apply_patch_proposal(&root, &edit_once_proposal).expect("apply edit patch");
         assert_eq!(
             fs::read_to_string(root.join("nested/demo.txt")).expect("read file"),
             "omega\nbeta\ngamma\n"
         );
 
-        execute_tool(
-            "write_file",
-            &json!({ "path": "nested/demo.txt", "content": "alpha\nbeta\nalpha\n" }),
+        let reset_proposal: PatchProposal = serde_json::from_str(
+            &execute_tool(
+                "write_file",
+                &json!({ "path": "nested/demo.txt", "content": "alpha\nbeta\nalpha\n" }),
+            )
+            .expect("reset file proposal"),
         )
-        .expect("reset file");
+        .expect("reset patch proposal");
+        apply_patch_proposal(&root, &reset_proposal).expect("apply reset patch");
         let edit_all = execute_tool(
             "edit_file",
             &json!({
@@ -4058,7 +4084,10 @@ mod tests {
         )
         .expect("replace all should succeed");
         let edit_all_output: serde_json::Value = serde_json::from_str(&edit_all).expect("json");
-        assert_eq!(edit_all_output["replaceAll"], true);
+        assert_eq!(edit_all_output["type"], "patch_proposal");
+        let edit_all_proposal: PatchProposal =
+            serde_json::from_value(edit_all_output.clone()).expect("patch proposal");
+        apply_patch_proposal(&root, &edit_all_proposal).expect("apply edit-all patch");
         assert_eq!(
             fs::read_to_string(root.join("nested/demo.txt")).expect("read file"),
             "omega\nbeta\nomega\n"

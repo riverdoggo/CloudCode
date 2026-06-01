@@ -327,9 +327,19 @@ fn credentials_home_dir() -> io::Result<PathBuf> {
     if let Some(path) = std::env::var_os("CLAW_CONFIG_HOME") {
         return Ok(PathBuf::from(path));
     }
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".claw"))
+    if let Some(home) = std::env::var_os("HOME") {
+        return Ok(PathBuf::from(home).join(".claw"));
+    }
+    if let Some(profile) = std::env::var_os("USERPROFILE") {
+        return Ok(PathBuf::from(profile).join(".claw"));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        return Ok(PathBuf::from(appdata).join("cloud-code"));
+    }
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "No home directory env var found (HOME/USERPROFILE/APPDATA)",
+    ))
 }
 
 fn read_credentials_root(path: &PathBuf) -> io::Result<Map<String, Value>> {

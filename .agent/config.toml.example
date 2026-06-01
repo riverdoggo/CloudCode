@@ -1,0 +1,19 @@
+model = "openai:gpt-4.1"
+temperature = 0.2
+permission_mode = "workspace"
+plugins = ["core"]
+
+[providers.openai]
+api_key = "env:OPENAI_API_KEY"
+
+[providers.anthropic]
+api_key = "env:ANTHROPIC_API_KEY"
+
+[providers.ollama]
+endpoint = "http://localhost:11434"
+
+[providers.groq]
+api_key = "env:GROQ_API_KEY"
+
+[providers.openrouter]
+api_key = "env:OPENROUTER_API_KEY"

@@ -16,14 +16,15 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use api::{
-    resolve_startup_auth_source, ClawApiClient, AuthSource, ContentBlockDelta, InputContentBlock,
-    InputMessage, MessageRequest, MessageResponse, OutputContentBlock,
+    ClawApiClient, AuthSource, ContentBlockDelta, InputContentBlock, InputMessage,
+    MessageRequest, MessageResponse, OutputContentBlock, ProviderClient,
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
 use commands::{
     handle_agents_slash_command, handle_plugins_slash_command, handle_skills_slash_command,
-    render_slash_command_help, resume_supported_slash_commands, slash_command_specs, SlashCommand,
+    render_slash_command_help_filtered, resume_supported_slash_commands, slash_command_specs,
+    SlashCommand,
 };
 use compat_harness::{extract_manifest, UpstreamPaths};
 use init::initialize_repo;
@@ -41,6 +42,7 @@ use serde_json::json;
 use tools::GlobalToolRegistry;
 
 const DEFAULT_MODEL: &str = "claude-opus-4-6";
+const PROJECT_ENV_FILES: &[&str] = &[".env", ".enc"];
 fn max_tokens_for_model(model: &str) -> u32 {
     if model.contains("opus") {
         32_000
@@ -62,14 +64,27 @@ fn main() {
         eprintln!(
             "error: {error}
 
-Run `claw --help` for usage."
+Run `cloud-code --help` for usage."
         );
         std::process::exit(1);
     }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = env::args().skip(1).collect();
+    load_project_env_files()?;
+    let raw_args: Vec<String> = env::args().skip(1).collect();
+    let mut args = Vec::new();
+    let mut no_color = false;
+    for arg in raw_args {
+        if arg == "--no-color" {
+            no_color = true;
+        } else {
+            args.push(arg);
+        }
+    }
+    if no_color {
+        env::set_var("CLOUD_CODE_NO_COLOR", "1");
+    }
     match parse_args(&args)? {
         CliAction::DumpManifests => dump_manifests(),
         CliAction::BootstrapPlan => print_bootstrap_plan(),
@@ -97,7 +112,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             allowed_tools,
             permission_mode,
         } => run_repl(model, allowed_tools, permission_mode)?,
-        CliAction::Help => print_help(),
+        CliAction::Help { topic } => print_help(topic.as_deref()),
     }
     Ok(())
 }
@@ -137,7 +152,9 @@ enum CliAction {
         permission_mode: PermissionMode,
     },
     // prompt-mode formatting is only supported for non-interactive runs
-    Help,
+    Help {
+        topic: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,7 +177,11 @@ impl CliOutputFormat {
 
 #[allow(clippy::too_many_lines)]
 fn parse_args(args: &[String]) -> Result<CliAction, String> {
-    let mut model = DEFAULT_MODEL.to_string();
+    let mut model = env::var("CLOUD_CODE_MODEL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
     let mut output_format = CliOutputFormat::Text;
     let mut permission_mode = default_permission_mode();
     let mut wants_version = false;
@@ -266,7 +287,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         });
     }
     if matches!(rest.first().map(String::as_str), Some("--help" | "-h")) {
-        return Ok(CliAction::Help);
+        return Ok(CliAction::Help { topic: None });
     }
     if rest.first().map(String::as_str) == Some("--resume") {
         return parse_resume_args(&rest[1..]);
@@ -318,7 +339,7 @@ fn join_optional_args(args: &[String]) -> Option<String> {
 fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
     let raw = rest.join(" ");
     match SlashCommand::parse(&raw) {
-        Some(SlashCommand::Help) => Ok(CliAction::Help),
+        Some(SlashCommand::Help { topic }) => Ok(CliAction::Help { topic }),
         Some(SlashCommand::Agents { args }) => Ok(CliAction::Agents { args }),
         Some(SlashCommand::Skills { args }) => Ok(CliAction::Skills { args }),
         Some(command) => Err(format!(
@@ -338,6 +359,22 @@ fn resolve_model_alias(model: &str) -> &str {
         "sonnet" => "claude-sonnet-4-6",
         "haiku" => "claude-haiku-4-5-20251213",
         _ => model,
+    }
+}
+
+fn provider_key_env_var(provider: &str) -> Option<&'static str> {
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "openai" => Some("OPENAI_API_KEY"),
+        "anthropic" | "claude" | "claw" => Some("ANTHROPIC_API_KEY"),
+        "xai" | "grok" => Some("XAI_API_KEY"),
+        "groq" => Some("GROQ_API_KEY"),
+        "deepseek" => Some("DEEPSEEK_API_KEY"),
+        "ollama" => Some("OLLAMA_API_KEY"),
+        "kimi" | "moonshot" => Some("KIMI_API_KEY"),
+        "google" | "gemini" => Some("GOOGLE_API_KEY"),
+        "openrouter" => Some("OPENROUTER_API_KEY"),
+        "together" => Some("TOGETHER_API_KEY"),
+        _ => None,
     }
 }
 
@@ -826,9 +863,9 @@ fn run_resume_command(
     command: &SlashCommand,
 ) -> Result<ResumeCommandOutcome, Box<dyn std::error::Error>> {
     match command {
-        SlashCommand::Help => Ok(ResumeCommandOutcome {
+        SlashCommand::Help { topic } => Ok(ResumeCommandOutcome {
             session: session.clone(),
-            message: Some(render_repl_help()),
+            message: Some(render_repl_help(topic.as_deref())),
         }),
         SlashCommand::Compact => {
             let result = runtime::compact_session(
@@ -953,6 +990,11 @@ fn run_resume_command(
         | SlashCommand::Permissions { .. }
         | SlashCommand::Session { .. }
         | SlashCommand::Plugins { .. }
+        | SlashCommand::Login
+        | SlashCommand::Logout
+        | SlashCommand::ApiSet { .. }
+        | SlashCommand::ApiShow
+        | SlashCommand::Workspace { .. }
         | SlashCommand::Unknown(_) => Err("unsupported resumed slash command".into()),
     }
 }
@@ -1056,19 +1098,28 @@ impl LiveCli {
             |_| "<unknown>".to_string(),
             |path| path.display().to_string(),
         );
+        if !cli_colors_enabled() {
+            return format!(
+                "CLOUD CODE\n\n  Model            {}\n  Permissions      {}\n  Directory        {}\n  Session          {}\n\n  Type /help for commands · Shift+Enter for newline",
+                self.model,
+                self.permission_mode.as_str(),
+                cwd,
+                self.session.id,
+            );
+        }
         format!(
-            "\x1b[38;5;196m\
- ██████╗██╗      █████╗ ██╗    ██╗\n\
-██╔════╝██║     ██╔══██╗██║    ██║\n\
-██║     ██║     ███████║██║ █╗ ██║\n\
-██║     ██║     ██╔══██║██║███╗██║\n\
-╚██████╗███████╗██║  ██║╚███╔███╔╝\n\
- ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\x1b[0m \x1b[38;5;208mCode\x1b[0m 🦞\n\n\
-  \x1b[2mModel\x1b[0m            {}\n\
-  \x1b[2mPermissions\x1b[0m      {}\n\
-  \x1b[2mDirectory\x1b[0m        {}\n\
-  \x1b[2mSession\x1b[0m          {}\n\n\
-  Type \x1b[1m/help\x1b[0m for commands · \x1b[2mShift+Enter\x1b[0m for newline",
+            "\x1b[38;5;39m  ██████╗██╗      ██████╗ ██╗   ██╗██████╗ \x1b[0m\n\
+\x1b[38;5;39m ██╔════╝██║     ██╔═══██╗██║   ██║██╔══██╗\x1b[0m\n\
+\x1b[38;5;39m ██║     ██║     ██║   ██║██║   ██║██║  ██║\x1b[0m\n\
+\x1b[38;5;39m ██║     ██║     ██║   ██║██║   ██║██║  ██║\x1b[0m\n\
+\x1b[38;5;39m ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝\x1b[0m\n\
+\x1b[38;5;39m  ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ \x1b[0m\n\
+\x1b[38;5;33m                    CLOUD CODE\x1b[0m\n\n\
+  \x1b[38;5;117mModel\x1b[0m            {}\n\
+  \x1b[38;5;117mPermissions\x1b[0m      {}\n\
+  \x1b[38;5;117mDirectory\x1b[0m        {}\n\
+  \x1b[38;5;117mSession\x1b[0m          {}\n\n\
+  Type \x1b[1;38;5;45m/help\x1b[0m for commands · \x1b[2mShift+Enter\x1b[0m for newline",
             self.model,
             self.permission_mode.as_str(),
             cwd,
@@ -1159,8 +1210,8 @@ impl LiveCli {
         command: SlashCommand,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         Ok(match command {
-            SlashCommand::Help => {
-                println!("{}", render_repl_help());
+            SlashCommand::Help { topic } => {
+                println!("{}", render_repl_help(topic.as_deref()));
                 false
             }
             SlashCommand::Status => {
@@ -1243,6 +1294,39 @@ impl LiveCli {
             }
             SlashCommand::Skills { args } => {
                 Self::print_skills(args.as_deref())?;
+                false
+            }
+            SlashCommand::Login => {
+                run_login()?;
+                false
+            }
+            SlashCommand::Logout => {
+                run_logout()?;
+                false
+            }
+            SlashCommand::ApiSet {
+                provider,
+                model,
+                api_key,
+            } => {
+                let selected_model =
+                    Self::run_api_set(provider.as_deref(), model.as_deref(), api_key.as_deref())?;
+                if selected_model.is_empty() {
+                    false
+                } else {
+                    self.set_model(Some(selected_model))?
+                }
+            }
+            SlashCommand::ApiShow => {
+                Self::print_api_profile()?;
+                false
+            }
+            SlashCommand::Workspace { action, name, path } => {
+                Self::run_workspace_command(
+                    action.as_deref(),
+                    name.as_deref(),
+                    path.as_deref(),
+                )?;
                 false
             }
             SlashCommand::Branch { .. } => {
@@ -1467,6 +1551,176 @@ impl LiveCli {
         let cwd = env::current_dir()?;
         println!("{}", handle_skills_slash_command(args, &cwd)?);
         Ok(())
+    }
+
+    fn run_api_set(
+        provider: Option<&str>,
+        model: Option<&str>,
+        api_key: Option<&str>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let Some(provider) = provider.map(str::trim).filter(|value| !value.is_empty()) else {
+            println!("Usage: /api-set <provider> <model> <api-key>");
+            return Ok(String::new());
+        };
+        let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
+            println!("Usage: /api-set <provider> <model> <api-key>");
+            return Ok(String::new());
+        };
+        let Some(api_key) = api_key.map(str::trim).filter(|value| !value.is_empty()) else {
+            println!("Usage: /api-set <provider> <model> <api-key>");
+            return Ok(String::new());
+        };
+
+        let env_dir = Self::resolve_env_profile_dir()?;
+        let env_path = env_dir.join(".env");
+        upsert_env_var(&env_path, "CLOUD_CODE_PROVIDER", provider)?;
+        upsert_env_var(&env_path, "CLOUD_CODE_MODEL", model)?;
+        upsert_env_var(&env_path, "CLOUD_CODE_API_KEY", api_key)?;
+        match provider.to_ascii_lowercase().as_str() {
+            "openai" => upsert_env_var(&env_path, "OPENAI_API_KEY", api_key)?,
+            "anthropic" | "claude" | "claw" => {
+                upsert_env_var(&env_path, "ANTHROPIC_API_KEY", api_key)?
+            }
+            "xai" | "grok" => upsert_env_var(&env_path, "XAI_API_KEY", api_key)?,
+            "groq" => upsert_env_var(&env_path, "GROQ_API_KEY", api_key)?,
+            "deepseek" => upsert_env_var(&env_path, "DEEPSEEK_API_KEY", api_key)?,
+            "ollama" => upsert_env_var(&env_path, "OLLAMA_API_KEY", api_key)?,
+            "kimi" | "moonshot" => upsert_env_var(&env_path, "KIMI_API_KEY", api_key)?,
+            "google" | "gemini" => upsert_env_var(&env_path, "GOOGLE_API_KEY", api_key)?,
+            "openrouter" => upsert_env_var(&env_path, "OPENROUTER_API_KEY", api_key)?,
+            "together" => upsert_env_var(&env_path, "TOGETHER_API_KEY", api_key)?,
+            _ => {}
+        }
+        env::set_var("CLOUD_CODE_PROVIDER", provider);
+        env::set_var("CLOUD_CODE_MODEL", model);
+        env::set_var("CLOUD_CODE_API_KEY", api_key);
+        match provider.to_ascii_lowercase().as_str() {
+            "openai" => env::set_var("OPENAI_API_KEY", api_key),
+            "anthropic" | "claude" | "claw" => env::set_var("ANTHROPIC_API_KEY", api_key),
+            "xai" | "grok" => env::set_var("XAI_API_KEY", api_key),
+            "groq" => env::set_var("GROQ_API_KEY", api_key),
+            "deepseek" => env::set_var("DEEPSEEK_API_KEY", api_key),
+            "ollama" => env::set_var("OLLAMA_API_KEY", api_key),
+            "kimi" | "moonshot" => env::set_var("KIMI_API_KEY", api_key),
+            "google" | "gemini" => env::set_var("GOOGLE_API_KEY", api_key),
+            "openrouter" => env::set_var("OPENROUTER_API_KEY", api_key),
+            "together" => env::set_var("TOGETHER_API_KEY", api_key),
+            _ => {}
+        }
+        let preview = if api_key.len() <= 8 {
+            "***".to_string()
+        } else {
+            format!("{}***", &api_key[..8])
+        };
+        println!(
+            "API profile saved\n  File             {}\n  Provider         {}\n  Model            {}\n  API key          {}",
+            env_path.display(),
+            provider,
+            model,
+            preview
+        );
+        Ok(model.to_string())
+    }
+
+    fn print_api_profile() -> Result<(), Box<dyn std::error::Error>> {
+        let provider = env::var("CLOUD_CODE_PROVIDER")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let model = env::var("CLOUD_CODE_MODEL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let api_key_present = provider
+            .as_deref()
+            .and_then(provider_key_env_var)
+            .and_then(|env_name| env::var(env_name).ok())
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+
+        println!(
+            "API profile\n  Provider         {}\n  Model            {}\n  Key              {}",
+            provider.as_deref().unwrap_or("not configured"),
+            model.as_deref().unwrap_or("not configured"),
+            if api_key_present {
+                "configured"
+            } else {
+                "missing"
+            }
+        );
+        Ok(())
+    }
+
+    fn resolve_env_profile_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let cwd = env::current_dir()?;
+        resolve_project_root(&cwd)
+    }
+
+    fn run_workspace_command(
+        action: Option<&str>,
+        name: Option<&str>,
+        path: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let cwd = env::current_dir()?;
+        let workspace_registry_path = cwd.join(".cloud-code.workspaces.json");
+        let mut workspaces = load_workspace_registry(&workspace_registry_path)?;
+        match action.map(str::trim) {
+            None | Some("list") => {
+                if workspaces.is_empty() {
+                    println!("Workspaces\n  No saved workspaces.");
+                    return Ok(());
+                }
+                println!("Workspaces");
+                for (workspace_name, workspace_path) in workspaces {
+                    println!("  {workspace_name:<16} {workspace_path}");
+                }
+                Ok(())
+            }
+            Some("add") => {
+                let Some(name) = name.map(str::trim).filter(|value| !value.is_empty()) else {
+                    println!("Usage: /workspace add <name> <path>");
+                    return Ok(());
+                };
+                let Some(path) = path.map(str::trim).filter(|value| !value.is_empty()) else {
+                    println!("Usage: /workspace add <name> <path>");
+                    return Ok(());
+                };
+                workspaces.insert(name.to_string(), path.to_string());
+                save_workspace_registry(&workspace_registry_path, &workspaces)?;
+                println!(
+                    "Workspace added\n  Name             {}\n  Path             {}\n  Registry         {}",
+                    name,
+                    path,
+                    workspace_registry_path.display()
+                );
+                Ok(())
+            }
+            Some("use") => {
+                let Some(name) = name.map(str::trim).filter(|value| !value.is_empty()) else {
+                    println!("Usage: /workspace use <name>");
+                    return Ok(());
+                };
+                let Some(target_path) = workspaces.get(name) else {
+                    println!("Workspace '{name}' is not configured.");
+                    return Ok(());
+                };
+                let env_path = cwd.join(".env");
+                upsert_env_var(&env_path, "CLOUD_CODE_WORKSPACE", target_path)?;
+                println!(
+                    "Workspace selected\n  Name             {}\n  Path             {}\n  Env file         {}",
+                    name,
+                    target_path,
+                    env_path.display()
+                );
+                Ok(())
+            }
+            Some(other) => {
+                println!(
+                    "Unknown /workspace action '{other}'. Use /workspace list, /workspace add <name> <path>, or /workspace use <name>."
+                );
+                Ok(())
+            }
+        }
     }
 
     fn print_diff() -> Result<(), Box<dyn std::error::Error>> {
@@ -1864,18 +2118,33 @@ fn render_session_list(active_session_id: &str) -> Result<String, Box<dyn std::e
     Ok(lines.join("\n"))
 }
 
-fn render_repl_help() -> String {
+fn render_repl_help(topic: Option<&str>) -> String {
+    if !cli_colors_enabled() {
+        return [
+            "Cloud Code REPL".to_string(),
+            "  /exit                Quit the REPL".to_string(),
+            "  /quit                Quit the REPL".to_string(),
+            "  /vim                 Toggle Vim keybindings".to_string(),
+            "  Up/Down              Navigate prompt history".to_string(),
+            "  Tab                  Complete slash commands".to_string(),
+            "  Ctrl-C               Clear input (or exit on empty prompt)".to_string(),
+            "  Shift+Enter/Ctrl+J   Insert a newline".to_string(),
+            String::new(),
+            render_slash_command_help_filtered(topic),
+        ]
+        .join("\n");
+    }
     [
-        "REPL".to_string(),
-        "  /exit                Quit the REPL".to_string(),
-        "  /quit                Quit the REPL".to_string(),
-        "  /vim                 Toggle Vim keybindings".to_string(),
-        "  Up/Down              Navigate prompt history".to_string(),
-        "  Tab                  Complete slash commands".to_string(),
-        "  Ctrl-C               Clear input (or exit on empty prompt)".to_string(),
-        "  Shift+Enter/Ctrl+J   Insert a newline".to_string(),
+        "\x1b[1;38;5;45mCloud Code REPL\x1b[0m".to_string(),
+        "\x1b[38;5;117m  /exit\x1b[0m                Quit the REPL".to_string(),
+        "\x1b[38;5;117m  /quit\x1b[0m                Quit the REPL".to_string(),
+        "\x1b[38;5;117m  /vim\x1b[0m                 Toggle Vim keybindings".to_string(),
+        "\x1b[38;5;117m  Up/Down\x1b[0m              Navigate prompt history".to_string(),
+        "\x1b[38;5;117m  Tab\x1b[0m                  Complete slash commands".to_string(),
+        "\x1b[38;5;117m  Ctrl-C\x1b[0m               Clear input (or exit on empty prompt)".to_string(),
+        "\x1b[38;5;117m  Shift+Enter/Ctrl+J\x1b[0m   Insert a newline".to_string(),
         String::new(),
-        render_slash_command_help(),
+        render_slash_command_help_filtered(topic),
     ]
     .join(
         "
@@ -2317,11 +2586,149 @@ fn parse_titled_body(value: &str) -> Option<(String, String)> {
     Some((title.to_string(), body.to_string()))
 }
 
+fn upsert_env_var(path: &Path, key: &str, value: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let mut lines = if path.is_file() {
+        fs::read_to_string(path)?
+            .lines()
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let mut replaced = false;
+    for line in &mut lines {
+        if line.starts_with(&format!("{key}=")) {
+            *line = format!("{key}={value}");
+            replaced = true;
+            break;
+        }
+    }
+    if !replaced {
+        lines.push(format!("{key}={value}"));
+    }
+    let mut output = lines.join("\n");
+    if !output.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
+    fs::write(path, output)?;
+    Ok(())
+}
+
+fn load_project_env_files() -> Result<(), Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+    let mut search_dirs = vec![cwd.clone()];
+    if let Ok(root) = resolve_project_root(&cwd) {
+        if !search_dirs.iter().any(|existing| existing == &root) {
+            search_dirs.push(root);
+        }
+    }
+
+    for dir in search_dirs {
+        for file in PROJECT_ENV_FILES {
+            let path = dir.join(file);
+            if !path.is_file() {
+                continue;
+            }
+            let content = fs::read_to_string(&path)?;
+            for line in content.lines() {
+                let Some((key, value)) = parse_env_assignment(line) else {
+                    continue;
+                };
+                if env::var_os(&key).is_none() {
+                    env::set_var(key, value);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_env_assignment(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let without_export = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+    let (key, value) = without_export.split_once('=')?;
+    let key = key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+    Some((key.to_string(), value))
+}
+
+fn resolve_project_root(cwd: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if let Some(workspace_root) = env::var_os("CLOUD_CODE_WORKSPACE_ROOT") {
+        let workspace_root = PathBuf::from(workspace_root);
+        if workspace_root.is_dir() {
+            return Ok(workspace_root);
+        }
+    }
+    if let Some(workspace) = env::var_os("CLOUD_CODE_WORKSPACE") {
+        let workspace = PathBuf::from(workspace);
+        if workspace.is_dir() {
+            return Ok(workspace);
+        }
+    }
+    if let Ok(git_root) = find_git_root() {
+        return Ok(git_root);
+    }
+    if is_project_root_candidate(cwd) {
+        return Ok(cwd.to_path_buf());
+    }
+    Err("unable to resolve project root; set CLOUD_CODE_WORKSPACE_ROOT or run from project root".into())
+}
+
+fn is_project_root_candidate(path: &Path) -> bool {
+    path.join(".git").is_dir()
+        || path.join(".claw").is_dir()
+        || path.join("CLAW.md").is_file()
+        || path.join("Cargo.toml").is_file()
+        || path.join("package.json").is_file()
+}
+
+fn load_workspace_registry(
+    path: &Path,
+) -> Result<std::collections::BTreeMap<String, String>, Box<dyn std::error::Error>> {
+    if !path.is_file() {
+        return Ok(std::collections::BTreeMap::new());
+    }
+    let raw = fs::read_to_string(path)?;
+    if raw.trim().is_empty() {
+        return Ok(std::collections::BTreeMap::new());
+    }
+    let value: serde_json::Value = serde_json::from_str(&raw)?;
+    let Some(object) = value.as_object() else {
+        return Err("workspace registry must be a JSON object".into());
+    };
+    let mut map = std::collections::BTreeMap::new();
+    for (key, value) in object {
+        let Some(value) = value.as_str() else {
+            continue;
+        };
+        map.insert(key.clone(), value.to_string());
+    }
+    Ok(map)
+}
+
+fn save_workspace_registry(
+    path: &Path,
+    workspaces: &std::collections::BTreeMap<String, String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut json_map = serde_json::Map::new();
+    for (name, workspace_path) in workspaces {
+        json_map.insert(name.clone(), serde_json::Value::String(workspace_path.clone()));
+    }
+    fs::write(path, serde_json::to_string_pretty(&json_map)?)?;
+    Ok(())
+}
+
 fn render_version_report() -> String {
     let git_sha = GIT_SHA.unwrap_or("unknown");
     let target = BUILD_TARGET.unwrap_or("unknown");
     format!(
-        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
+        "Cloud Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
     )
 }
 
@@ -2873,7 +3280,7 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
 
 struct DefaultRuntimeClient {
     runtime: tokio::runtime::Runtime,
-    client: ClawApiClient,
+    client: Option<ProviderClient>,
     model: String,
     enable_tools: bool,
     emit_output: bool,
@@ -2893,8 +3300,7 @@ impl DefaultRuntimeClient {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
-            client: ClawApiClient::from_auth(resolve_cli_auth_source()?)
-                .with_base_url(api::read_base_url()),
+            client: None,
             model,
             enable_tools,
             emit_output,
@@ -2905,19 +3311,37 @@ impl DefaultRuntimeClient {
     }
 }
 
-fn resolve_cli_auth_source() -> Result<AuthSource, Box<dyn std::error::Error>> {
-    Ok(resolve_startup_auth_source(|| {
-        let cwd = env::current_dir().map_err(api::ApiError::from)?;
-        let config = ConfigLoader::default_for(&cwd).load().map_err(|error| {
-            api::ApiError::Auth(format!("failed to load runtime OAuth config: {error}"))
-        })?;
-        Ok(config.oauth().cloned())
-    })?)
+fn configured_provider_name() -> Option<String> {
+    env::var("CLOUD_CODE_PROVIDER")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
 }
 
 impl ApiClient for DefaultRuntimeClient {
     #[allow(clippy::too_many_lines)]
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+        if self.client.is_none() {
+            let provider = configured_provider_name().ok_or_else(|| {
+                RuntimeError::new(
+                    "No model provider configured.\n\nRun:\n/api-set groq llama3 <api-key>\n/api-set openai gpt-4.1 <api-key>\n/api-set ollama llama3".to_string(),
+                )
+            })?;
+            let key_var = provider_key_env_var(&provider).unwrap_or("CLOUD_CODE_API_KEY");
+            let key_is_missing = env::var(key_var)
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true);
+            if key_is_missing {
+                return Err(RuntimeError::new(format!(
+                    "Missing credentials for provider '{provider}'.\n\nSet {key_var} or run /api-set {provider} <model> <api-key>."
+                )));
+            }
+            self.client = Some(ProviderClient::from_model(&self.model).map_err(|error| {
+                RuntimeError::new(format!(
+                    "{error}\n\nRun /api-set <provider> <model> <api-key> to configure credentials."
+                ))
+            })?);
+        }
         if let Some(progress_reporter) = &self.progress_reporter {
             progress_reporter.mark_model_phase();
         }
@@ -2936,6 +3360,8 @@ impl ApiClient for DefaultRuntimeClient {
         self.runtime.block_on(async {
             let mut stream = self
                 .client
+                .as_ref()
+                .expect("client should be initialized before stream")
                 .stream_message(&message_request)
                 .await
                 .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -3049,6 +3475,8 @@ impl ApiClient for DefaultRuntimeClient {
 
             let response = self
                 .client
+                .as_ref()
+                .expect("client should be initialized before fallback request")
                 .send_message(&MessageRequest {
                     stream: false,
                     ..message_request.clone()
@@ -3190,17 +3618,21 @@ fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
         "\x1b[1;32m✓\x1b[0m"
     };
     if is_error {
+        if let Some(rendered) = render_runtime_error(name, output) {
+            return format!("{rendered}\n\x1b[2mStatus: {}\x1b[0m", status_from_error(output));
+        }
         let summary = truncate_for_summary(output.trim(), 160);
-        return if summary.is_empty() {
+        let base = if summary.is_empty() {
             format!("{icon} \x1b[38;5;245m{name}\x1b[0m")
         } else {
             format!("{icon} \x1b[38;5;245m{name}\x1b[0m\n\x1b[38;5;203m{summary}\x1b[0m")
         };
+        return format!("{base}\n\x1b[2mStatus: tool_error\x1b[0m");
     }
 
     let parsed: serde_json::Value =
         serde_json::from_str(output).unwrap_or(serde_json::Value::String(output.to_string()));
-    match name {
+    let rendered = match name {
         "bash" | "Bash" => format_bash_result(icon, &parsed),
         "read_file" | "Read" => format_read_result(icon, &parsed),
         "write_file" | "Write" => format_write_result(icon, &parsed),
@@ -3208,7 +3640,8 @@ fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
         "glob_search" | "Glob" => format_glob_result(icon, &parsed),
         "grep_search" | "Grep" => format_grep_result(icon, &parsed),
         _ => format_generic_tool_result(icon, name, &parsed),
-    }
+    };
+    format!("{rendered}\n\x1b[2mStatus: {}\x1b[0m", status_from_success(name, output))
 }
 
 const DISPLAY_TRUNCATION_NOTICE: &str =
@@ -3499,6 +3932,68 @@ fn format_generic_tool_result(icon: &str, name: &str, parsed: &serde_json::Value
     }
 }
 
+fn render_runtime_error(name: &str, output: &str) -> Option<String> {
+    let payload: serde_json::Value = serde_json::from_str(output).ok()?;
+    if payload.get("type").and_then(|v| v.as_str()) != Some("error") {
+        return None;
+    }
+    let code = payload.get("code").and_then(|v| v.as_str()).unwrap_or("runtime_error");
+    let message = payload
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Runtime error");
+    let (headline, hint) = match code {
+        "permission_denied" => (
+            "Operation denied by permission policy.",
+            "approve operation or use a higher permission mode",
+        ),
+        "path_denied" => (
+            "Operation blocked by sandbox policy.",
+            "move file access inside workspace root",
+        ),
+        "allowlist_denied" => (
+            "Shell command denied by workspace allowlist.",
+            "run an allowlisted command or use full-access mode",
+        ),
+        "patch_conflict" => (
+            "Patch conflict detected.",
+            "re-read the file and retry the edit",
+        ),
+        "mutation_bypass_detected" => (
+            "Runtime safety violation.",
+            "tool bug detected; report issue and retry with trusted tool",
+        ),
+        _ => ("Runtime error.", "check detailed message and retry"),
+    };
+    Some(format!(
+        "\x1b[1;31m✗\x1b[0m \x1b[38;5;245m{name}\x1b[0m\n\x1b[38;5;203m{headline}\x1b[0m\n\x1b[2mReason: {message}\x1b[0m\n\x1b[2mHint: {hint}\x1b[0m"
+    ))
+}
+
+fn status_from_error(output: &str) -> &'static str {
+    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(output) {
+        match payload.get("code").and_then(|v| v.as_str()) {
+            Some("patch_conflict") => "patch_conflict",
+            Some("allowlist_denied") => "allowlist_denied",
+            Some("path_denied") => "sandbox_denied",
+            Some("permission_denied") => "permission_denied",
+            Some("mutation_bypass_detected") => "mutation_bypass_detected",
+            _ => "runtime_error",
+        }
+    } else {
+        "tool_error"
+    }
+}
+
+fn status_from_success(name: &str, output: &str) -> &'static str {
+    if matches!(name, "write_file" | "Write" | "edit_file" | "Edit") && output.contains("Patch applied:")
+    {
+        "patch_applied"
+    } else {
+        "ok"
+    }
+}
+
 fn summarize_tool_payload(payload: &str) -> String {
     let compact = match serde_json::from_str::<serde_json::Value>(payload) {
         Ok(value) => value.to_string(),
@@ -3729,41 +4224,41 @@ fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
         .collect()
 }
 
-fn print_help_to(out: &mut impl Write) -> io::Result<()> {
-    writeln!(out, "claw v{VERSION}")?;
+fn print_help_to(out: &mut impl Write, topic: Option<&str>) -> io::Result<()> {
+    writeln!(out, "cloud-code v{VERSION}")?;
     writeln!(out)?;
     writeln!(out, "Usage:")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
+        "  cloud-code [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
     )?;
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--output-format text|json] prompt TEXT"
+        "  cloud-code [--model MODEL] [--output-format text|json] prompt TEXT"
     )?;
     writeln!(out, "      Send one prompt and exit")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--output-format text|json] TEXT"
+        "  cloud-code [--model MODEL] [--output-format text|json] TEXT"
     )?;
     writeln!(out, "      Shorthand non-interactive prompt mode")?;
     writeln!(
         out,
-        "  claw --resume SESSION.json [/status] [/compact] [...]"
+        "  cloud-code --resume SESSION.json [/status] [/compact] [...]"
     )?;
     writeln!(
         out,
         "      Inspect or maintain a saved session without entering the REPL"
     )?;
-    writeln!(out, "  claw dump-manifests")?;
-    writeln!(out, "  claw bootstrap-plan")?;
-    writeln!(out, "  claw agents")?;
-    writeln!(out, "  claw skills")?;
-    writeln!(out, "  claw system-prompt [--cwd PATH] [--date YYYY-MM-DD]")?;
-    writeln!(out, "  claw login")?;
-    writeln!(out, "  claw logout")?;
-    writeln!(out, "  claw init")?;
+    writeln!(out, "  cloud-code dump-manifests")?;
+    writeln!(out, "  cloud-code bootstrap-plan")?;
+    writeln!(out, "  cloud-code agents")?;
+    writeln!(out, "  cloud-code skills")?;
+    writeln!(out, "  cloud-code system-prompt [--cwd PATH] [--date YYYY-MM-DD]")?;
+    writeln!(out, "  cloud-code login")?;
+    writeln!(out, "  cloud-code logout")?;
+    writeln!(out, "  cloud-code init")?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
     writeln!(
@@ -3787,9 +4282,13 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "  --version, -V              Print version and build information locally"
     )?;
+    writeln!(
+        out,
+        "  --no-color                 Disable ANSI color and styling output"
+    )?;
     writeln!(out)?;
     writeln!(out, "Interactive slash commands:")?;
-    writeln!(out, "{}", render_slash_command_help())?;
+    writeln!(out, "{}", render_slash_command_help_filtered(topic))?;
     writeln!(out)?;
     let resume_commands = resume_supported_slash_commands()
         .into_iter()
@@ -3801,28 +4300,32 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         .join(", ");
     writeln!(out, "Resume-safe commands: {resume_commands}")?;
     writeln!(out, "Examples:")?;
-    writeln!(out, "  claw --model opus \"summarize this repo\"")?;
+    writeln!(out, "  cloud-code --model opus \"summarize this repo\"")?;
     writeln!(
         out,
-        "  claw --output-format json prompt \"explain src/main.rs\""
+        "  cloud-code --output-format json prompt \"explain src/main.rs\""
     )?;
     writeln!(
         out,
-        "  claw --allowedTools read,glob \"summarize Cargo.toml\""
+        "  cloud-code --allowedTools read,glob \"summarize Cargo.toml\""
     )?;
     writeln!(
         out,
-        "  claw --resume session.json /status /diff /export notes.txt"
+        "  cloud-code --resume session.json /status /diff /export notes.txt"
     )?;
-    writeln!(out, "  claw agents")?;
-    writeln!(out, "  claw /skills")?;
-    writeln!(out, "  claw login")?;
-    writeln!(out, "  claw init")?;
+    writeln!(out, "  cloud-code agents")?;
+    writeln!(out, "  cloud-code /skills")?;
+    writeln!(out, "  cloud-code login")?;
+    writeln!(out, "  cloud-code init")?;
     Ok(())
 }
 
-fn print_help() {
-    let _ = print_help_to(&mut io::stdout());
+fn print_help(topic: Option<&str>) {
+    let _ = print_help_to(&mut io::stdout(), topic);
+}
+
+fn cli_colors_enabled() -> bool {
+    env::var_os("CLOUD_CODE_NO_COLOR").is_none()
 }
 
 #[cfg(test)]
@@ -4154,12 +4657,12 @@ mod tests {
 
     #[test]
     fn repl_help_includes_shared_commands_and_exit() {
-        let help = render_repl_help();
+        let help = render_repl_help(None);
         assert!(help.contains("REPL"));
         assert!(help.contains("/help"));
         assert!(help.contains("/status"));
         assert!(help.contains("/model [model]"));
-        assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
+        assert!(help.contains("/permissions [read-only|workspace..."));
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
@@ -4171,9 +4674,9 @@ mod tests {
         assert!(help.contains("/export [file]"));
         assert!(help.contains("/session [list|switch <session-id>]"));
         assert!(help.contains(
-            "/plugin [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
+            "/plugin [list|install <path>|enab..."
         ));
-        assert!(help.contains("aliases: /plugins, /marketplace"));
+        assert!(help.contains("aliases: /plugins"));
         assert!(help.contains("/agents"));
         assert!(help.contains("/skills"));
         assert!(help.contains("/exit"));
@@ -4253,12 +4756,12 @@ mod tests {
     #[test]
     fn init_help_mentions_direct_subcommand() {
         let mut help = Vec::new();
-        print_help_to(&mut help).expect("help should render");
+        print_help_to(&mut help, None).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
-        assert!(help.contains("claw init"));
-        assert!(help.contains("claw agents"));
-        assert!(help.contains("claw skills"));
-        assert!(help.contains("claw /skills"));
+        assert!(help.contains("cloud-code init"));
+        assert!(help.contains("cloud-code agents"));
+        assert!(help.contains("cloud-code skills"));
+        assert!(help.contains("cloud-code /skills"));
     }
 
     #[test]
@@ -4456,7 +4959,7 @@ mod tests {
     }
     #[test]
     fn repl_help_mentions_history_completion_and_multiline() {
-        let help = render_repl_help();
+        let help = render_repl_help(None);
         assert!(help.contains("Up/Down"));
         assert!(help.contains("Tab"));
         assert!(help.contains("Shift+Enter/Ctrl+J"));
@@ -4475,6 +4978,71 @@ mod tests {
         );
         assert!(done.contains("📄 Read src/main.rs"));
         assert!(done.contains("hello"));
+        assert!(done.contains("Status: ok"));
+    }
+
+    #[test]
+    fn render_patch_conflict_message() {
+        let rendered = format_tool_result(
+            "write_file",
+            r#"{"type":"error","code":"patch_conflict","message":"File changed since proposal","tool":"write_file"}"#,
+            true,
+        );
+        assert!(rendered.contains("Patch conflict detected."));
+        assert!(rendered.contains("Hint: re-read the file and retry the edit"));
+        assert!(rendered.contains("Status: patch_conflict"));
+    }
+
+    #[test]
+    fn render_allowlist_denial_message() {
+        let rendered = format_tool_result(
+            "bash",
+            r#"{"type":"error","code":"allowlist_denied","message":"command 'curl' not allowed","tool":"bash"}"#,
+            true,
+        );
+        assert!(rendered.contains("Shell command denied by workspace allowlist."));
+        assert!(rendered.contains("Status: allowlist_denied"));
+    }
+
+    #[test]
+    fn render_mutation_bypass_message() {
+        let rendered = format_tool_result(
+            "write_file",
+            r#"{"type":"error","code":"mutation_bypass_detected","message":"tool returned mutation result without patch_proposal","tool":"write_file"}"#,
+            true,
+        );
+        assert!(rendered.contains("Runtime safety violation."));
+        assert!(rendered.contains("Status: mutation_bypass_detected"));
+    }
+
+    #[test]
+    fn transcript_patch_conflict() {
+        let rendered = format_tool_result(
+            "write_file",
+            r#"{"type":"error","code":"patch_conflict","message":"File changed since proposal","tool":"write_file"}"#,
+            true,
+        );
+        assert_transcript(&rendered, "tests/transcripts/patch_conflict.txt");
+    }
+
+    #[test]
+    fn transcript_allowlist_denial() {
+        let rendered = format_tool_result(
+            "bash",
+            r#"{"type":"error","code":"allowlist_denied","message":"command 'curl' not allowed","tool":"bash"}"#,
+            true,
+        );
+        assert_transcript(&rendered, "tests/transcripts/allowlist_denial.txt");
+    }
+
+    #[test]
+    fn transcript_mutation_bypass() {
+        let rendered = format_tool_result(
+            "write_file",
+            r#"{"type":"error","code":"mutation_bypass_detected","message":"tool returned mutation result without patch_proposal","tool":"write_file"}"#,
+            true,
+        );
+        assert_transcript(&rendered, "tests/transcripts/mutation_bypass.txt");
     }
 
     #[test]
@@ -4782,5 +5350,40 @@ mod tests {
             AssistantEvent::TextDelta(text) if text == "Final answer"
         ));
         assert!(!String::from_utf8(out).expect("utf8").contains("step 1"));
+    }
+
+    fn assert_transcript(output: &str, transcript_path: &str) {
+        let expected_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(transcript_path);
+        let expected = std::fs::read_to_string(expected_path).expect("read transcript");
+        assert_eq!(
+            normalize_transcript(output),
+            normalize_transcript(&expected),
+            "transcript mismatch for {transcript_path}"
+        );
+    }
+
+    fn normalize_transcript(text: &str) -> String {
+        strip_ansi(text)
+            .replace("\r\n", "\n")
+            .trim()
+            .to_string()
+    }
+
+    fn strip_ansi(input: &str) -> String {
+        let mut output = String::with_capacity(input.len());
+        let mut chars = input.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+                let _ = chars.next();
+                for next in chars.by_ref() {
+                    if next == 'm' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            output.push(ch);
+        }
+        output
     }
 }

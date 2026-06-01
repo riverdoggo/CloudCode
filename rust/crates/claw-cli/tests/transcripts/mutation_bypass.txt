@@ -1,0 +1,5 @@
+✗ write_file
+Runtime safety violation.
+Reason: tool returned mutation result without patch_proposal
+Hint: tool bug detected; report issue and retry with trusted tool
+Status: mutation_bypass_detected

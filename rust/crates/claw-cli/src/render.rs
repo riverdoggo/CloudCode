@@ -65,16 +65,27 @@ impl Spinner {
     ) -> io::Result<()> {
         let frame = Self::FRAMES[self.frame_index % Self::FRAMES.len()];
         self.frame_index += 1;
-        queue!(
-            out,
-            SavePosition,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
-            SetForegroundColor(theme.spinner_active),
-            Print(format!("{frame} {label}")),
-            ResetColor,
-            RestorePosition
-        )?;
+        if color_enabled_from_env() {
+            queue!(
+                out,
+                SavePosition,
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                SetForegroundColor(theme.spinner_active),
+                Print(format!("{frame} {label}")),
+                ResetColor,
+                RestorePosition
+            )?;
+        } else {
+            queue!(
+                out,
+                SavePosition,
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                Print(format!("{frame} {label}")),
+                RestorePosition
+            )?;
+        }
         out.flush()
     }
 
@@ -85,14 +96,23 @@ impl Spinner {
         out: &mut impl Write,
     ) -> io::Result<()> {
         self.frame_index = 0;
-        execute!(
-            out,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
-            SetForegroundColor(theme.spinner_done),
-            Print(format!("✔ {label}\n")),
-            ResetColor
-        )?;
+        if color_enabled_from_env() {
+            execute!(
+                out,
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                SetForegroundColor(theme.spinner_done),
+                Print(format!("✔ {label}\n")),
+                ResetColor
+            )?;
+        } else {
+            execute!(
+                out,
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                Print(format!("✔ {label}\n"))
+            )?;
+        }
         out.flush()
     }
 
@@ -103,14 +123,23 @@ impl Spinner {
         out: &mut impl Write,
     ) -> io::Result<()> {
         self.frame_index = 0;
-        execute!(
-            out,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
-            SetForegroundColor(theme.spinner_failed),
-            Print(format!("✘ {label}\n")),
-            ResetColor
-        )?;
+        if color_enabled_from_env() {
+            execute!(
+                out,
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                SetForegroundColor(theme.spinner_failed),
+                Print(format!("✘ {label}\n")),
+                ResetColor
+            )?;
+        } else {
+            execute!(
+                out,
+                MoveToColumn(0),
+                Clear(ClearType::CurrentLine),
+                Print(format!("✘ {label}\n"))
+            )?;
+        }
         out.flush()
     }
 }
@@ -219,6 +248,7 @@ pub struct TerminalRenderer {
     syntax_set: SyntaxSet,
     syntax_theme: Theme,
     color_theme: ColorTheme,
+    color_enabled: bool,
 }
 
 impl Default for TerminalRenderer {
@@ -232,6 +262,7 @@ impl Default for TerminalRenderer {
             syntax_set,
             syntax_theme,
             color_theme: ColorTheme::default(),
+            color_enabled: color_enabled_from_env(),
         }
     }
 }
@@ -266,7 +297,12 @@ impl TerminalRenderer {
             );
         }
 
-        output.trim_end().to_string()
+        let rendered = output.trim_end().to_string();
+        if self.color_enabled {
+            rendered
+        } else {
+            strip_ansi(&rendered)
+        }
     }
 
     #[must_use]
@@ -689,6 +725,10 @@ fn strip_ansi(input: &str) -> String {
     }
 
     output
+}
+
+fn color_enabled_from_env() -> bool {
+    std::env::var_os("CLOUD_CODE_NO_COLOR").is_none()
 }
 
 #[cfg(test)]

@@ -77,6 +77,30 @@ pub struct EditFileOutput {
     pub git_diff: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PatchProposal {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub operation: String,
+    #[serde(rename = "filePath")]
+    pub file_path: String,
+    pub original: String,
+    pub modified: String,
+    #[serde(rename = "structuredPatch")]
+    pub structured_patch: Vec<StructuredPatchHunk>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PatchApplyResult {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "filePath")]
+    pub file_path: String,
+    pub operation: String,
+    #[serde(rename = "linesChanged")]
+    pub lines_changed: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GlobSearchOutput {
     #[serde(rename = "durationMs")]
@@ -177,6 +201,19 @@ pub fn write_file(path: &str, content: &str) -> io::Result<WriteFileOutput> {
     })
 }
 
+pub fn propose_write_file(path: &str, content: &str) -> io::Result<PatchProposal> {
+    let absolute_path = normalize_path_allow_missing(path)?;
+    let original_file = fs::read_to_string(&absolute_path).unwrap_or_default();
+    Ok(PatchProposal {
+        kind: "patch_proposal".to_string(),
+        operation: "write_file".to_string(),
+        file_path: absolute_path.to_string_lossy().into_owned(),
+        original: original_file.clone(),
+        modified: content.to_string(),
+        structured_patch: make_patch(&original_file, content),
+    })
+}
+
 pub fn edit_file(
     path: &str,
     old_string: &str,
@@ -215,6 +252,88 @@ pub fn edit_file(
         replace_all,
         git_diff: None,
     })
+}
+
+pub fn propose_edit_file(
+    path: &str,
+    old_string: &str,
+    new_string: &str,
+    replace_all: bool,
+) -> io::Result<PatchProposal> {
+    let absolute_path = normalize_path(path)?;
+    let original_file = fs::read_to_string(&absolute_path)?;
+    if old_string == new_string {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "old_string and new_string must differ",
+        ));
+    }
+    if !original_file.contains(old_string) {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "old_string not found in file",
+        ));
+    }
+
+    let updated = if replace_all {
+        original_file.replace(old_string, new_string)
+    } else {
+        original_file.replacen(old_string, new_string, 1)
+    };
+
+    Ok(PatchProposal {
+        kind: "patch_proposal".to_string(),
+        operation: "edit_file".to_string(),
+        file_path: absolute_path.to_string_lossy().into_owned(),
+        original: original_file.clone(),
+        modified: updated.clone(),
+        structured_patch: make_patch(&original_file, &updated),
+    })
+}
+
+pub fn apply_patch_proposal(
+    workspace_root: &Path,
+    proposal: &PatchProposal,
+) -> io::Result<PatchApplyResult> {
+    let absolute_path = resolve_against_workspace(workspace_root, &proposal.file_path)?;
+    let current_file = fs::read_to_string(&absolute_path).unwrap_or_default();
+    if current_file != proposal.original {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "patch conflict: file changed since proposal was generated",
+        ));
+    }
+    if let Some(parent) = absolute_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&absolute_path, &proposal.modified)?;
+    Ok(PatchApplyResult {
+        kind: "patch_apply".to_string(),
+        file_path: absolute_path.to_string_lossy().into_owned(),
+        operation: proposal.operation.clone(),
+        lines_changed: proposal.structured_patch.iter().map(|h| h.lines.len()).sum(),
+    })
+}
+
+fn resolve_against_workspace(workspace_root: &Path, path: &str) -> io::Result<PathBuf> {
+    let candidate = Path::new(path);
+    let joined = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        workspace_root.join(candidate)
+    };
+    if let Ok(canonical) = joined.canonicalize() {
+        return Ok(canonical);
+    }
+    if let Some(parent) = joined.parent() {
+        let canonical_parent = parent
+            .canonicalize()
+            .unwrap_or_else(|_| parent.to_path_buf());
+        if let Some(name) = joined.file_name() {
+            return Ok(canonical_parent.join(name));
+        }
+    }
+    Ok(joined)
 }
 
 pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOutput> {

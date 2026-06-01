@@ -1,0 +1,10 @@
+services:
+  cloud-code:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8787:8787"
+    environment:
+      CLOUD_CODE_HOST: 0.0.0.0
+      CLOUD_CODE_PORT: 8787

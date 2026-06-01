@@ -16,6 +16,13 @@ use super::{Provider, ProviderFuture};
 
 pub const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const DEFAULT_GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
+pub const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
+pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
+pub const DEFAULT_KIMI_BASE_URL: &str = "https://api.moonshot.cn/v1";
+pub const DEFAULT_GOOGLE_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+pub const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+pub const DEFAULT_TOGETHER_BASE_URL: &str = "https://api.together.xyz/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
@@ -32,6 +39,13 @@ pub struct OpenAiCompatConfig {
 
 const XAI_ENV_VARS: &[&str] = &["XAI_API_KEY"];
 const OPENAI_ENV_VARS: &[&str] = &["OPENAI_API_KEY"];
+const GROQ_ENV_VARS: &[&str] = &["GROQ_API_KEY", "CLOUD_CODE_API_KEY"];
+const DEEPSEEK_ENV_VARS: &[&str] = &["DEEPSEEK_API_KEY", "CLOUD_CODE_API_KEY"];
+const OLLAMA_ENV_VARS: &[&str] = &["OLLAMA_API_KEY", "CLOUD_CODE_API_KEY"];
+const KIMI_ENV_VARS: &[&str] = &["KIMI_API_KEY", "CLOUD_CODE_API_KEY"];
+const GOOGLE_ENV_VARS: &[&str] = &["GOOGLE_API_KEY", "CLOUD_CODE_API_KEY"];
+const OPENROUTER_ENV_VARS: &[&str] = &["OPENROUTER_API_KEY", "CLOUD_CODE_API_KEY"];
+const TOGETHER_ENV_VARS: &[&str] = &["TOGETHER_API_KEY", "CLOUD_CODE_API_KEY"];
 
 impl OpenAiCompatConfig {
     #[must_use]
@@ -54,10 +68,80 @@ impl OpenAiCompatConfig {
         }
     }
     #[must_use]
+    pub const fn groq() -> Self {
+        Self {
+            provider_name: "Groq",
+            api_key_env: "GROQ_API_KEY",
+            base_url_env: "GROQ_BASE_URL",
+            default_base_url: DEFAULT_GROQ_BASE_URL,
+        }
+    }
+    #[must_use]
+    pub const fn deepseek() -> Self {
+        Self {
+            provider_name: "DeepSeek",
+            api_key_env: "DEEPSEEK_API_KEY",
+            base_url_env: "DEEPSEEK_BASE_URL",
+            default_base_url: DEFAULT_DEEPSEEK_BASE_URL,
+        }
+    }
+    #[must_use]
+    pub const fn ollama() -> Self {
+        Self {
+            provider_name: "Ollama",
+            api_key_env: "OLLAMA_API_KEY",
+            base_url_env: "OLLAMA_BASE_URL",
+            default_base_url: DEFAULT_OLLAMA_BASE_URL,
+        }
+    }
+    #[must_use]
+    pub const fn kimi() -> Self {
+        Self {
+            provider_name: "Kimi",
+            api_key_env: "KIMI_API_KEY",
+            base_url_env: "KIMI_BASE_URL",
+            default_base_url: DEFAULT_KIMI_BASE_URL,
+        }
+    }
+    #[must_use]
+    pub const fn google() -> Self {
+        Self {
+            provider_name: "Google",
+            api_key_env: "GOOGLE_API_KEY",
+            base_url_env: "GOOGLE_BASE_URL",
+            default_base_url: DEFAULT_GOOGLE_BASE_URL,
+        }
+    }
+    #[must_use]
+    pub const fn openrouter() -> Self {
+        Self {
+            provider_name: "OpenRouter",
+            api_key_env: "OPENROUTER_API_KEY",
+            base_url_env: "OPENROUTER_BASE_URL",
+            default_base_url: DEFAULT_OPENROUTER_BASE_URL,
+        }
+    }
+    #[must_use]
+    pub const fn together() -> Self {
+        Self {
+            provider_name: "Together",
+            api_key_env: "TOGETHER_API_KEY",
+            base_url_env: "TOGETHER_BASE_URL",
+            default_base_url: DEFAULT_TOGETHER_BASE_URL,
+        }
+    }
+    #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
             "xAI" => XAI_ENV_VARS,
             "OpenAI" => OPENAI_ENV_VARS,
+            "Groq" => GROQ_ENV_VARS,
+            "DeepSeek" => DEEPSEEK_ENV_VARS,
+            "Ollama" => OLLAMA_ENV_VARS,
+            "Kimi" => KIMI_ENV_VARS,
+            "Google" => GOOGLE_ENV_VARS,
+            "OpenRouter" => OPENROUTER_ENV_VARS,
+            "Together" => TOGETHER_ENV_VARS,
             _ => &[],
         }
     }
@@ -87,7 +171,9 @@ impl OpenAiCompatClient {
     }
 
     pub fn from_env(config: OpenAiCompatConfig) -> Result<Self, ApiError> {
-        let Some(api_key) = read_env_non_empty(config.api_key_env)? else {
+        let Some(api_key) = read_env_non_empty(config.api_key_env)?
+            .or(read_env_non_empty("CLOUD_CODE_API_KEY")?)
+        else {
             return Err(ApiError::missing_credentials(
                 config.provider_name,
                 config.credential_env_vars(),
@@ -863,7 +949,9 @@ pub fn has_api_key(key: &str) -> bool {
 
 #[must_use]
 pub fn read_base_url(config: OpenAiCompatConfig) -> String {
-    std::env::var(config.base_url_env).unwrap_or_else(|_| config.default_base_url.to_string())
+    std::env::var(config.base_url_env)
+        .or_else(|_| std::env::var("CLOUD_CODE_BASE_URL"))
+        .unwrap_or_else(|_| config.default_base_url.to_string())
 }
 
 fn chat_completions_endpoint(base_url: &str) -> String {

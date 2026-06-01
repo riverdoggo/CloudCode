@@ -30,6 +30,17 @@ pub enum ProviderKind {
     OpenAi,
 }
 
+#[must_use]
+pub fn provider_kind_from_name(provider: &str) -> Option<ProviderKind> {
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "anthropic" | "claude" | "claw" => Some(ProviderKind::ClawApi),
+        "xai" | "grok" => Some(ProviderKind::Xai),
+        "openai" | "groq" | "deepseek" | "ollama" | "kimi" | "moonshot" | "google"
+        | "gemini" | "openrouter" | "together" => Some(ProviderKind::OpenAi),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderMetadata {
     pub provider: ProviderKind,
@@ -186,6 +197,11 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
 
 #[must_use]
 pub fn detect_provider_kind(model: &str) -> ProviderKind {
+    if let Ok(provider_name) = std::env::var("CLOUD_CODE_PROVIDER") {
+        if let Some(provider_kind) = provider_kind_from_name(&provider_name) {
+            return provider_kind;
+        }
+    }
     if let Some(metadata) = metadata_for_model(model) {
         return metadata.provider;
     }

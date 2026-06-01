@@ -183,7 +183,11 @@ impl EditSession {
 
         let prompt = self.prompt(base_prompt, vim_enabled);
         let buffer = self.visible_buffer();
-        write!(out, "{prompt}{buffer}")?;
+        if std::env::var_os("CLOUD_CODE_NO_COLOR").is_none() {
+            write!(out, "\x1b[48;5;236m{prompt}{buffer}\x1b[0m")?;
+        } else {
+            write!(out, "{prompt}{buffer}")?;
+        }
 
         let (cursor_row, cursor_col, total_lines) = self.cursor_layout(prompt.as_ref());
         let rows_to_move_up = total_lines.saturating_sub(cursor_row + 1);
@@ -207,7 +211,11 @@ impl EditSession {
         self.clear_render(out)?;
         let prompt = self.prompt(base_prompt, vim_enabled);
         let buffer = self.visible_buffer();
-        write!(out, "{prompt}{buffer}")?;
+        if std::env::var_os("CLOUD_CODE_NO_COLOR").is_none() {
+            write!(out, "\x1b[48;5;236m{prompt}{buffer}\x1b[0m")?;
+        } else {
+            write!(out, "{prompt}{buffer}")?;
+        }
         writeln!(out)
     }
 

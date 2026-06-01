@@ -1,0 +1,5 @@
+✗ bash
+Shell command denied by workspace allowlist.
+Reason: command 'curl' not allowed
+Hint: run an allowlisted command or use full-access mode
+Status: allowlist_denied
